@@ -386,11 +386,6 @@ uchar *my_large_malloc(size_t *size, myf my_flags)
   DBUG_RETURN(my_malloc_lock(*size, my_flags));
 #endif /* defined(HAVE_MMAP) */
 
-  if (ptr != NULL)
-  {
-    MEM_MAKE_DEFINED(ptr, *size);
-  }
-
   DBUG_RETURN(ptr);
 }
 
