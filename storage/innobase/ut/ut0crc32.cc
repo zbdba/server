@@ -132,6 +132,7 @@ static inline bool has_sse4_2()
 @param crc   CRC-32C checksum so far
 @param data  data to be checksummed
 @return the updated CRC-32C */
+__attribute__((target("sse4.2")))
 static inline ulint ut_crc32c_8(ulint crc, byte data)
 {
 #  ifdef _MSC_VER
@@ -148,6 +149,7 @@ static inline ulint ut_crc32c_8(ulint crc, byte data)
 @param[in] crc    CRC-32C checksum so far
 @param[in] data   8 bytes of aligned data
 @return the updated CRC-32C */
+__attribute__((target("sse4.2")))
 static inline ulint ut_crc32c_64(ulint crc, uint64_t data)
 {
 #  ifdef _MSC_VER
