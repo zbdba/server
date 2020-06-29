@@ -133,9 +133,6 @@ dict_load_foreigns(
 	const char*		table_name,	/*!< in: table name */
 	const char**		col_names,	/*!< in: column names, or NULL
 						to use table->col_names */
-	bool			check_recursive,/*!< in: Whether to check
-						recursive load of tables
-						chained by FK */
 	bool			check_charsets,	/*!< in: whether to check
 						charset compatibility */
 	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */

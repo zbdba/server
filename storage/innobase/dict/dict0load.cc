@@ -2878,8 +2878,7 @@ corrupted:
 	if (!table->is_readable()) {
 		/* Don't attempt to load the indexes from disk. */
 	} else if (err == DB_SUCCESS) {
-		err = dict_load_foreigns(table->name.m_name, NULL,
-					 true, true,
+		err = dict_load_foreigns(table->name.m_name, NULL, true,
 					 ignore_err, fk_tables);
 
 		if (err != DB_SUCCESS) {
@@ -3200,10 +3199,6 @@ dict_load_foreign(
 	const char**		col_names,
 				/*!< in: column names, or NULL
 				to use foreign->foreign_table->col_names */
-	bool			check_recursive,
-				/*!< in: whether to record the foreign table
-				parent count to avoid unlimited recursive
-				load of chained foreign tables */
 	bool			check_charsets,
 				/*!< in: whether to check charset
 				compatibility */
@@ -3234,7 +3229,7 @@ dict_load_foreign(
 
 	DBUG_ENTER("dict_load_foreign");
 	DBUG_PRINT("dict_load_foreign",
-		   ("id: '%s', check_recursive: %d", id, check_recursive));
+		   ("id: '%s'", id));
 
 	ut_ad(mutex_own(&dict_sys.mutex));
 
@@ -3384,9 +3379,6 @@ dict_load_foreigns(
 	const char*		table_name,	/*!< in: table name */
 	const char**		col_names,	/*!< in: column names, or NULL
 						to use table->col_names */
-	bool			check_recursive,/*!< in: Whether to check
-						recursive load of tables
-						chained by FK */
 	bool			check_charsets,	/*!< in: whether to check
 						charset compatibility */
 	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */
@@ -3505,7 +3497,7 @@ loop:
 	/* Load the foreign constraint definition to the dictionary cache */
 
 	err = dict_load_foreign(fk_id, col_names,
-				check_recursive, check_charsets, ignore_err,
+				check_charsets, ignore_err,
 				fk_tables);
 
 	if (err != DB_SUCCESS) {
