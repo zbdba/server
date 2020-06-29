@@ -12278,6 +12278,7 @@ create_table_info_t::create_foreign_keys()
 		}
 
 		if (foreign->id == NULL) {
+			// FIXME: test if needed
 			error = dict_create_add_foreign_id(
 				&number, table->name.m_name, foreign);
 			if (error != DB_SUCCESS) {
@@ -12554,27 +12555,6 @@ create_table_info_t::create_foreign_keys()
 		return (DB_NO_FK_ON_S_BASE_COL);
 	}
 
-	/**********************************************************/
-	/* The following call adds the foreign key constraints
-	to the data dictionary system tables on disk */
-	m_trx->op_info = "adding foreign keys";
-
-	trx_start_if_not_started_xa(m_trx, true);
-
-	trx_set_dict_operation(m_trx, TRX_DICT_OP_TABLE);
-
-	error = dict_create_add_foreigns_to_dictionary(local_fk_set, table, m_trx);
-
-	if (error == DB_SUCCESS) {
-
-		table->foreign_set.insert(local_fk_set.begin(),
-					  local_fk_set.end());
-		std::for_each(local_fk_set.begin(), local_fk_set.end(),
-			      dict_foreign_add_to_referenced_table());
-		local_fk_set.clear();
-
-		dict_mem_table_fill_foreign_vcol_set(table);
-	}
 	return (error);
 }
 
@@ -20266,8 +20246,6 @@ i_s_innodb_sys_tablestats,
 i_s_innodb_sys_indexes,
 i_s_innodb_sys_columns,
 i_s_innodb_sys_fields,
-i_s_innodb_sys_foreign,
-i_s_innodb_sys_foreign_cols,
 i_s_innodb_sys_tablespaces,
 i_s_innodb_sys_datafiles,
 i_s_innodb_sys_virtual,

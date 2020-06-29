@@ -1925,27 +1925,6 @@ skip_monitors:
 		}
 	}
 
-	/* Create the SYS_FOREIGN and SYS_FOREIGN_COLS system tables */
-	err = dict_create_or_check_foreign_constraint_tables();
-	if (err == DB_SUCCESS) {
-		err = dict_create_or_check_sys_tablespace();
-		if (err == DB_SUCCESS) {
-			err = dict_create_or_check_sys_virtual();
-		}
-	}
-	switch (err) {
-	case DB_SUCCESS:
-		break;
-	case DB_READ_ONLY:
-		if (srv_force_recovery >= SRV_FORCE_NO_TRX_UNDO) {
-			break;
-		}
-		ib::error() << "Cannot create system tables in read-only mode";
-		/* fall through */
-	default:
-		return(srv_init_abort(err));
-	}
-
 	if (!srv_read_only_mode && srv_operation == SRV_OPERATION_NORMAL) {
 		/* Initialize the innodb_temporary tablespace and keep
 		it open until shutdown. */
