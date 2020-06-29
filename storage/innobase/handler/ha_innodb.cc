@@ -12683,7 +12683,7 @@ int create_table_info_t::create_table(bool create_fk)
 	if (err == DB_SUCCESS) {
 		/* Check that also referencing constraints are ok */
 		dict_names_t	fk_tables;
-		err = dict_load_foreigns(m_table_name, NULL, true,
+		err = old_dict_load_foreigns(m_table_name, NULL, true,
 						DICT_ERR_IGNORE_NONE,
 						fk_tables);
 		while (err == DB_SUCCESS && !fk_tables.empty()) {

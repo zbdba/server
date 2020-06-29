@@ -128,7 +128,7 @@ cache, then it is added to the output parameter (fk_tables).
 
 @return DB_SUCCESS or error code */
 dberr_t
-dict_load_foreigns(
+old_dict_load_foreigns(
 /*===============*/
 	const char*		table_name,	/*!< in: table name */
 	const char**		col_names,	/*!< in: column names, or NULL

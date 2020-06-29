@@ -4550,7 +4550,7 @@ end:
 		an ALTER TABLE, not in a RENAME. */
 		dict_names_t	fk_tables;
 
-		err = dict_load_foreigns(
+		err = old_dict_load_foreigns(
 			new_name, NULL,
 			!old_is_tmp || trx->check_foreigns,
 			use_fk

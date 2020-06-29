@@ -2878,7 +2878,7 @@ corrupted:
 	if (!table->is_readable()) {
 		/* Don't attempt to load the indexes from disk. */
 	} else if (err == DB_SUCCESS) {
-		err = dict_load_foreigns(table->name.m_name, NULL, true,
+		err = old_dict_load_foreigns(table->name.m_name, NULL, true,
 					 ignore_err, fk_tables);
 
 		if (err != DB_SUCCESS) {
@@ -3191,7 +3191,7 @@ table is not yet loaded, it is added in the output parameter (fk_tables).
 @return DB_SUCCESS or error code */
 static MY_ATTRIBUTE((nonnull(1), warn_unused_result))
 dberr_t
-dict_load_foreign(
+old_dict_load_foreign(
 /*==============*/
 	const char*		id,
 				/*!< in: foreign constraint id, must be
@@ -3375,7 +3375,7 @@ cache, then it is added to the output parameter (fk_tables).
 
 @return DB_SUCCESS or error code */
 dberr_t
-dict_load_foreigns(
+old_dict_load_foreigns(
 	const char*		table_name,	/*!< in: table name */
 	const char**		col_names,	/*!< in: column names, or NULL
 						to use table->col_names */
@@ -3496,7 +3496,7 @@ loop:
 
 	/* Load the foreign constraint definition to the dictionary cache */
 
-	err = dict_load_foreign(fk_id, col_names,
+	err = old_dict_load_foreign(fk_id, col_names,
 				check_charsets, ignore_err,
 				fk_tables);
 
@@ -3523,12 +3523,6 @@ load_next_index:
 	if (sec_index != NULL) {
 
 		mtr_start(&mtr);
-
-		/* Switch to scan index on REF_NAME, fk_max_recusive_level
-		already been updated when scanning FOR_NAME index, no need to
-		update again */
-		check_recursive = FALSE;
-
 		goto start_load;
 	}
 
