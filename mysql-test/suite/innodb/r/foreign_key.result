@@ -376,12 +376,12 @@ flush status;
 lock tables t1 write;
 show status like '%opened_tab%';
 Variable_name	Value
-Opened_table_definitions	3
+Opened_table_definitions	2
 Opened_tables	2
 insert t1 values (4,4);
 show status like '%opened_tab%';
 Variable_name	Value
-Opened_table_definitions	6
+Opened_table_definitions	5
 Opened_tables	5
 unlock tables;
 create function foo() returns int

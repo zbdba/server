@@ -2521,7 +2521,7 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
       else if (error)
       {
 fk_error:
-        if (thd->is_killed())
+        if (drop_db || thd->is_killed())
         {
           error= -1;
           for (FK_ddl_backup &bak: shares)
@@ -13064,6 +13064,7 @@ bool fk_handle_rename(THD *thd, TABLE_LIST *old_table, const LEX_CSTRING *new_db
   Share_acquire sa(thd, *old_table);
   if (sa.is_error(thd))
     return thd->is_error();
+  sa.flush_unused= true;
   TABLE_SHARE *share= sa.share;
   if (share->foreign_keys.is_empty() && share->referenced_keys.is_empty())
     return false;

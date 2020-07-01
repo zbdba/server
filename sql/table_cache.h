@@ -117,10 +117,11 @@ public:
 class Share_acquire
 {
 public:
+  bool flush_unused;
   TABLE_SHARE *share;
 
-  Share_acquire() : share(NULL) {}
-  Share_acquire(THD *thd, TABLE_LIST &tl, uint flags= 0)
+  Share_acquire() : flush_unused(false), share(NULL) {}
+  Share_acquire(THD *thd, TABLE_LIST &tl, uint flags= 0) : flush_unused(false)
   {
     acquire(thd, tl, flags);
   }
@@ -128,25 +129,19 @@ public:
 
   // NB: noexcept is required for STL containers
   Share_acquire(Share_acquire &&src) noexcept :
-    share(src.share)
+    flush_unused(src.flush_unused), share(src.share)
   {
     src.share= NULL;
   }
-  ~Share_acquire()
-  {
-    if (share)
-    {
-      share->tdc->flush_unused(true);
-      tdc_release_share(share);
-    }
-  }
+  ~Share_acquire();
   bool is_error(THD *thd);
   void acquire(THD *thd, TABLE_LIST &tl, uint flags= 0);
   void release()
   {
     if (share)
     {
-      share->tdc->flush_unused(true);
+      if (flush_unused)
+        share->tdc->flush_unused(true);
       tdc_release_share(share);
       share= NULL;
     }

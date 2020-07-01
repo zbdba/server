@@ -1293,6 +1293,17 @@ void TDC_element::flush_unused(bool mark_flushed)
 }
 
 
+Share_acquire::~Share_acquire()
+{
+  if (share)
+  {
+    if (flush_unused)
+      share->tdc->flush_unused(true);
+    tdc_release_share(share);
+  }
+}
+
+
 void Share_acquire::acquire(THD *thd, TABLE_LIST &tl, uint flags)
 {
   Diagnostics_area *da= thd->get_stmt_da();
