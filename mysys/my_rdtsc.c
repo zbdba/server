@@ -75,10 +75,6 @@
 #endif
 #endif
 
-#if defined(HAVE_SYS_TIMEB_H) && defined(HAVE_FTIME)
-#include <sys/timeb.h>       /* for ftime */
-#endif
-
 #if defined(HAVE_SYS_TIMES_H) && defined(HAVE_TIMES)
 #include <sys/times.h>       /* for times */
 #endif
@@ -166,20 +162,12 @@ ulonglong my_timer_microseconds(void)
 #endif
 }
 
-/*
-  For milliseconds, we use ftime() if it's supported
-  or time()*1000 if it's not. With modern versions of
-  Windows and with HP Itanium, resolution is 10-15
-  milliseconds.
-*/
-
 ulonglong my_timer_milliseconds(void)
 {
-#if defined(HAVE_SYS_TIMEB_H) && defined(HAVE_FTIME)
-  /* ftime() is obsolete but maybe the platform is old */
-  struct timeb ft;
-  ftime(&ft);
-  return (ulonglong)ft.time * 1000 + (ulonglong)ft.millitm;
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_REALTIME)
+  struct timespec tp;
+  clock_gettime(CLOCK_REALTIME, &tp);
+  return (ulonglong) tp.tv_sec * 1000 + (ulonglong) tp.tv_nsec / 1000000;
 #elif defined(HAVE_TIME)
   return (ulonglong) time(NULL) * 1000;
 #elif defined(_WIN32)
@@ -426,8 +414,8 @@ void my_timer_init(MY_TIMER_INFO *mti)
 
   /* milliseconds */
   mti->milliseconds.frequency= 1000; /* initial assumption */
-#if defined(HAVE_SYS_TIMEB_H) && defined(HAVE_FTIME)
-  mti->milliseconds.routine= MY_TIMER_ROUTINE_FTIME;
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_REALTIME)
+  mti->milliseconds.routine= MY_TIMER_ROUTINE_CLOCK_GETTIME;
 #elif defined(_WIN32)
   mti->milliseconds.routine= MY_TIMER_ROUTINE_GETSYSTEMTIMEASFILETIME;
 #elif defined(HAVE_TIME)
@@ -696,11 +684,6 @@ void my_timer_init(MY_TIMER_INFO *mti)
 
    clock_gettime() -- In tests, clock_gettime often had
    resolution = 1000.
-
-   ftime() -- A "man ftime" says: "This function is obsolete.
-   Don't use it." On every platform that we tested, if ftime()
-   was available, then so was gettimeofday(), and gettimeofday()
-   overhead was always at least as good as ftime() overhead.
 
    gettimeofday() -- available on most platforms, though not
    on Windows. There is a hardware timer (sometimes a Programmable

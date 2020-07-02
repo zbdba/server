@@ -215,7 +215,6 @@ C_MODE_END
 #define MY_TIMER_ROUTINE_GETTICKCOUNT            15
 #define MY_TIMER_ROUTINE_TIME                    16
 #define MY_TIMER_ROUTINE_TIMES                   17
-#define MY_TIMER_ROUTINE_FTIME                   18
 #define MY_TIMER_ROUTINE_ASM_GCC_SPARC64         23
 #define MY_TIMER_ROUTINE_ASM_GCC_SPARC32         24
 #define MY_TIMER_ROUTINE_MACH_ABSOLUTE_TIME      25
