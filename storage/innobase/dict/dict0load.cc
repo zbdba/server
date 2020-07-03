@@ -2878,7 +2878,7 @@ corrupted:
 	if (!table->is_readable()) {
 		/* Don't attempt to load the indexes from disk. */
 	} else if (err == DB_SUCCESS) {
-		err = old_dict_load_foreigns(table->name.m_name, NULL, true,
+		err = old_dict_load_foreigns(table->name.m_name, true,
 					 ignore_err, fk_tables);
 
 		if (err != DB_SUCCESS) {
@@ -3196,9 +3196,6 @@ old_dict_load_foreign(
 	const char*		id,
 				/*!< in: foreign constraint id, must be
 				'\0'-terminated */
-	const char**		col_names,
-				/*!< in: column names, or NULL
-				to use foreign->foreign_table->col_names */
 	bool			check_charsets,
 				/*!< in: whether to check charset
 				compatibility */
@@ -3359,8 +3356,7 @@ old_dict_load_foreign(
 	a new foreign key constraint but loading one from the data
 	dictionary. */
 
-	DBUG_RETURN(dict_foreign_add_to_cache(foreign, col_names,
-					      check_charsets,
+	DBUG_RETURN(dict_foreign_add_to_cache(foreign, check_charsets,
 					      ignore_err));
 }
 
@@ -3377,8 +3373,6 @@ cache, then it is added to the output parameter (fk_tables).
 dberr_t
 old_dict_load_foreigns(
 	const char*		table_name,	/*!< in: table name */
-	const char**		col_names,	/*!< in: column names, or NULL
-						to use table->col_names */
 	bool			check_charsets,	/*!< in: whether to check
 						charset compatibility */
 	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */
@@ -3496,7 +3490,7 @@ loop:
 
 	/* Load the foreign constraint definition to the dictionary cache */
 
-	err = old_dict_load_foreign(fk_id, col_names,
+	err = old_dict_load_foreign(fk_id,
 				check_charsets, ignore_err,
 				fk_tables);
 

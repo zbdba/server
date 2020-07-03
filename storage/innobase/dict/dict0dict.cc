@@ -2983,9 +2983,6 @@ dict_foreign_add_to_cache(
 /*======================*/
 	dict_foreign_t*		foreign,
 				/*!< in, own: foreign key constraint */
-	const char**		col_names,
-				/*!< in: column names, or NULL to use
-				foreign->foreign_table->col_names */
 	bool			check_charsets,
 				/*!< in: whether to check charset
 				compatibility */
@@ -3064,7 +3061,7 @@ dict_foreign_add_to_cache(
 
 	if (for_table && !for_in_cache->foreign_table) {
 		index = dict_foreign_find_index(
-			for_table, col_names,
+			for_table, NULL,
 			for_in_cache->foreign_col_names,
 			for_in_cache->n_fields,
 			for_in_cache->referenced_index, check_charsets,

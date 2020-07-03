@@ -4551,7 +4551,7 @@ end:
 		dict_names_t	fk_tables;
 
 		err = old_dict_load_foreigns(
-			new_name, NULL,
+			new_name,
 			!old_is_tmp || trx->check_foreigns,
 			use_fk
 			? DICT_ERR_IGNORE_NONE
