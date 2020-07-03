@@ -2488,7 +2488,8 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables, bool if_exists,
         {
           error= -1;
           for (FK_ddl_backup &bak: shares)
-            bak.rollback();
+            if (bak.sa.share)
+              bak.rollback();
           goto err;
         }
         close_all_tables_for_name(thd, table->table->s,
@@ -2525,7 +2526,8 @@ fk_error:
         {
           error= -1;
           for (FK_ddl_backup &bak: shares)
-            bak.rollback();
+            if (bak.sa.share)
+              bak.rollback();
           goto err;
         }
       }
@@ -2589,13 +2591,15 @@ fk_error:
       {
         for (FK_ddl_backup &bak: shares)
         {
-          bak.sa.share->fk_install_shadow_frm();
+          if (bak.sa.share)
+            bak.sa.share->fk_install_shadow_frm();
         }
       }
       else
       {
         for (FK_ddl_backup &bak: shares)
-          bak.rollback();
+          if (bak.sa.share)
+            bak.rollback();
       }
       local_non_tmp_error|= MY_TEST(error);
     }
@@ -13038,8 +13042,15 @@ bool fk_handle_drop(THD *thd, TABLE_LIST *table, vector<FK_ddl_backup> &shares,
         ref_it.remove();
       }
     }
-    if (ref.sa.share->fk_write_shadow_frm())
-      return true;
+    int err= ref.sa.share->fk_write_shadow_frm();
+    if (err)
+    {
+      if (err > 2)
+        return true;
+      // ignore non-existent frm (main.drop_table_force, Test6)
+      thd->clear_error();
+      ref.sa.release();
+    }
   }
 
   return false;

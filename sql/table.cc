@@ -3336,7 +3336,7 @@ bool TABLE_SHARE::write_par_image(const uchar *par, size_t len)
 }
 
 
-bool TABLE_SHARE::read_frm_image(const uchar **frm, size_t *len)
+int TABLE_SHARE::read_frm_image(const uchar **frm, size_t *len)
 {
   if (IF_PARTITIONING(partition_info_str, 0))   // cannot discover a partition
   {

@@ -416,7 +416,7 @@ Extra2_info::write(uchar *frm_image, size_t frm_size)
 }
 
 
-bool TABLE_SHARE::fk_write_shadow_frm()
+int TABLE_SHARE::fk_write_shadow_frm()
 {
   const uchar * frm_src;
   uchar * frm_dst;
@@ -425,8 +425,25 @@ bool TABLE_SHARE::fk_write_shadow_frm()
   Extra2_info extra2;
   Foreign_key_io foreign_key_io;
 
-  if (read_frm_image(&frm_src, &frm_size))
-    return true;
+  int err= read_frm_image(&frm_src, &frm_size);
+  if (err)
+  {
+    char path[FN_REFLEN + 1];
+    strxmov(path, normalized_path.str, reg_ext, NullS);
+    switch (err)
+    {
+    case 1:
+      my_error(ER_CANT_OPEN_FILE, MYF(0), path, my_errno);
+      break;
+    case 2:
+      my_error(ER_FILE_NOT_FOUND, MYF(0), path, my_errno);
+      break;
+    default:
+      my_error(ER_OUT_OF_RESOURCES, MYF(0));
+      break;
+    }
+    return err;
+  }
 
   Scope_malloc frm_src_freer(frm_src); // read_frm_image() passed ownership to us
 
@@ -436,7 +453,7 @@ frm_err:
     char path[FN_REFLEN + 1];
     strxmov(path, normalized_path.str, reg_ext, NullS);
     my_error(ER_NOT_FORM_FILE, MYF(0), path);
-    return true;
+    return 10;
   }
 
   if (!is_binary_frm_header(frm_src))
@@ -448,7 +465,7 @@ frm_err:
                     "Cannot create table %`s: "
                     "Read of extra2 section failed.",
                     MYF(0), table_name.str);
-    return true;
+    return 10;
   }
 
   const uchar * const rest_src= frm_src + FRM_HEADER_SIZE + extra2.read_size;
@@ -465,7 +482,7 @@ frm_err:
                     "Cannot create table %`s: "
                     "Building the foreign key info image failed.",
                     MYF(0), table_name.str);
-    return true;
+    return 10;
   }
 
   const size_t extra2_increase= extra2.store_size() - extra2.read_size; // FIXME: can be negative
@@ -474,12 +491,12 @@ frm_err:
   if (frm_size > FRM_MAX_SIZE)
   {
     my_error(ER_TABLE_DEFINITION_TOO_BIG, MYF(0), table_name.str);
-    return true;
+    return 10;
   }
 
   Scope_malloc frm_dst_freer(frm_dst, frm_size, MY_WME);
   if (!frm_dst)
-    return true;
+    return 10;
 
   memcpy((void *)frm_dst, (void *)frm_src, FRM_HEADER_SIZE);
 
@@ -489,7 +506,7 @@ frm_err:
                     "Cannot create table %`s: "
                     "Write of extra2 section failed.",
                     MYF(0), table_name.str);
-    return true;
+    return 10;
   }
 
   forminfo_off+= extra2_increase;
@@ -506,9 +523,9 @@ frm_err:
                               db, table_name);
   strxnmov(shadow_frm_name, sizeof(shadow_frm_name), shadow_path, reg_ext, NullS);
   if (writefile(shadow_frm_name, db.str, table_name.str, false, frm_dst, frm_size))
-    return true;
+    return 10;
 
-  return false;
+  return 0;
 }
 
 bool fk_install_shadow_frm(Table_name old_name, Table_name new_name)

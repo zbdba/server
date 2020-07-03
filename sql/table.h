@@ -743,7 +743,7 @@ struct TABLE_SHARE
   {
     return !referenced_keys.is_empty();
   }
-  bool fk_write_shadow_frm();
+  int fk_write_shadow_frm();
   bool fk_install_shadow_frm();
   void fk_drop_shadow_frm();
   bool fk_resolve_referenced_keys(THD *thd, TABLE_SHARE *from);
@@ -1164,7 +1164,7 @@ struct TABLE_SHARE
     returns an frm image for this table.
     the memory is allocated and must be freed later
   */
-  bool read_frm_image(const uchar **frm_image, size_t *frm_length);
+  int read_frm_image(const uchar **frm_image, size_t *frm_length);
 
   /* frees the memory allocated in read_frm_image */
   void free_frm_image(const uchar *frm);
