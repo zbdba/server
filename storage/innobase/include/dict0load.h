@@ -117,28 +117,6 @@ void
 dict_load_sys_table(
 /*================*/
 	dict_table_t*	table);	/*!< in: system table */
-/***********************************************************************//**
-Loads foreign key constraints where the table is either the foreign key
-holder or where the table is referenced by a foreign key. Adds these
-constraints to the data dictionary.
-
-The foreign key constraint is loaded only if the referenced table is also
-in the dictionary cache.  If the referenced table is not in dictionary
-cache, then it is added to the output parameter (fk_tables).
-
-@return DB_SUCCESS or error code */
-dberr_t
-old_dict_load_foreigns(
-/*===============*/
-	const char*		table_name,	/*!< in: table name */
-	bool			check_charsets,	/*!< in: whether to check
-						charset compatibility */
-	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */
-	dict_names_t&		fk_tables)	/*!< out: stack of table names
-						which must be loaded
-						subsequently to load all the
-						foreign key constraints. */
-	MY_ATTRIBUTE((nonnull(1), warn_unused_result));
 
 /********************************************************************//**
 This function opens a system table, and return the first record.

@@ -2687,7 +2687,7 @@ innobase_check_fk_option(
 /*************************************************************//**
 Set foreign key options
 @return true if successfully set */
-static MY_ATTRIBUTE((nonnull, warn_unused_result))
+MY_ATTRIBUTE((nonnull, warn_unused_result))
 bool
 innobase_set_foreign_key_option(
 /*============================*/
