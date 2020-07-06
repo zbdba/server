@@ -1658,14 +1658,15 @@ send_data_in_chunks(NET *net, const uchar *packet, size_t len)
 size_t build_normalized_name(char *buff, size_t bufflen,
                              const char *db, size_t db_len,
                              const char *table_name, size_t table_len,
-                             size_t suffix_len)
+                             size_t suffix_len, bool start_slash)
 {
   uint errors;
   size_t length;
   char *pos= buff, *end= buff+bufflen;
   DBUG_ENTER("build_normalized_name");
 
-  (*pos++)= FN_LIBCHAR;
+  if (start_slash)
+    (*pos++)= FN_LIBCHAR;
   length= strconvert(system_charset_info, db, db_len,
                      &my_charset_filename, pos, bufflen - 3,
                      &errors);

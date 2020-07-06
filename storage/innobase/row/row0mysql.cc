@@ -4332,6 +4332,8 @@ end:
 			innobase_rename_vc_templ(table);
 		}
 
+		if (!old_is_tmp && !new_is_tmp)
+		{
 		/* We only want to switch off some of the type checking in
 		an ALTER TABLE, not in a RENAME. */
 		dict_names_t	fk_tables;
@@ -4339,7 +4341,8 @@ end:
 		err = dict_load_foreigns(
 			table,
 			NULL,
-			!old_is_tmp || trx->check_foreigns,
+			NULL,
+			true,
 			use_fk
 			? DICT_ERR_IGNORE_NONE
 			: DICT_ERR_IGNORE_FK_NOKEY,
@@ -4389,6 +4392,7 @@ end:
 			dict_load_table(fk_tables.front(),
 					DICT_ERR_IGNORE_NONE);
 			fk_tables.pop_front();
+		}
 		}
 
 		table->data_dir_path= NULL;

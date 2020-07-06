@@ -994,6 +994,8 @@ dict_load_foreigns(
 /*===============*/
 	dict_table_t*		table,
 	TABLE_SHARE*		share,
+	const char**		col_names,	/*!< in: column names, or NULL
+						to use table->col_names */
 	bool			check_charsets,	/*!< in: whether to check
 						charset compatibility */
 	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */

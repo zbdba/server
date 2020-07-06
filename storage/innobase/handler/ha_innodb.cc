@@ -12155,7 +12155,6 @@ create_table_info_t::create_foreign_keys()
 {
 	dict_foreign_set      local_fk_set;
 	dict_foreign_set_free local_fk_set_free(local_fk_set);
-	dberr_t		      error;
 	ulint		      number	      = 1;
 	const char*	      column_names[MAX_NUM_FK_COLUMNS];
 	const char*	      ref_column_names[MAX_NUM_FK_COLUMNS];
@@ -12278,7 +12277,7 @@ create_table_info_t::create_foreign_keys()
 
 		if (foreign->id == NULL) {
 			// FIXME: test if needed
-			error = dict_create_add_foreign_id(
+			dberr_t error = dict_create_add_foreign_id(
 				&number, table->name.m_name, foreign);
 			if (error != DB_SUCCESS) {
 				dict_foreign_free(foreign);
@@ -12554,7 +12553,7 @@ create_table_info_t::create_foreign_keys()
 		return (DB_NO_FK_ON_S_BASE_COL);
 	}
 
-	return (error);
+	return (DB_SUCCESS);
 }
 
 /** Create the internal innodb table.
@@ -12683,7 +12682,7 @@ int create_table_info_t::create_table(bool create_fk)
 		/* Check that also referencing constraints are ok */
 		dict_names_t	fk_tables;
 		// FIXME: is it needed here? I guess not.
-		err = dict_load_foreigns(NULL, m_form->s, true,
+		err = dict_load_foreigns(NULL, m_form->s, NULL, true,
 					 DICT_ERR_IGNORE_NONE, fk_tables);
 		while (err == DB_SUCCESS && !fk_tables.empty()) {
 			dict_load_table(fk_tables.front(),
@@ -21582,6 +21581,8 @@ dberr_t
 dict_load_foreigns(
 	dict_table_t*		table,
 	TABLE_SHARE*		share,
+	const char**		col_names,	/*!< in: column names, or NULL
+						to use table->col_names */
 	bool			check_charsets,	/*!< in: whether to check
 						charset compatibility */
 	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */
@@ -21652,14 +21653,14 @@ dict_load_foreigns(
 		foreign->id = mem_heap_strdupl(foreign->heap, fk.foreign_id.str, fk.foreign_id.length);
 		if (!foreign->id)
 			return DB_OUT_OF_MEMORY;
-		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(fk.foreign_db), LEX_STRING_WITH_LEN(fk.foreign_table), 0);
+		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(fk.foreign_db), LEX_STRING_WITH_LEN(fk.foreign_table), 0, false);
 		if (!len) {
 			return DB_ERROR;
 		}
 		foreign->foreign_table_name = mem_heap_strdupl(foreign->heap, buf, len);
 		if (!foreign->foreign_table_name)
 			return DB_OUT_OF_MEMORY;
-		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(fk.referenced_db), LEX_STRING_WITH_LEN(fk.referenced_table), 0);
+		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(fk.referenced_db), LEX_STRING_WITH_LEN(fk.referenced_table), 0, false);
 		if (!len) {
 			return DB_ERROR;
 		}
@@ -21717,7 +21718,7 @@ dict_load_foreigns(
 		a new foreign key constraint but loading one from the data
 		dictionary. */
 
-		return(dict_foreign_add_to_cache(foreign, check_charsets, ignore_err));
+		return(dict_foreign_add_to_cache(foreign, col_names, check_charsets, ignore_err));
 	}
 	return DB_SUCCESS;
 }

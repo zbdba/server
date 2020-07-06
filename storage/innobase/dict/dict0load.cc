@@ -2879,7 +2879,7 @@ corrupted:
 	if (!table->is_readable()) {
 		/* Don't attempt to load the indexes from disk. */
 	} else if (err == DB_SUCCESS) {
-		err = dict_load_foreigns(table, NULL, true,
+		err = dict_load_foreigns(table, NULL, NULL, true,
 					 ignore_err, fk_tables);
 
 		if (err != DB_SUCCESS) {

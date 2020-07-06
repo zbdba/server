@@ -571,7 +571,7 @@ struct Query_cache_query_flags
 size_t build_normalized_name(char *buff, size_t bufflen,
                              const char *db, size_t db_len,
                              const char *table_name, size_t table_len,
-                             size_t suffix_len);
+                             size_t suffix_len, bool start_slash= true);
 
 #define QUERY_CACHE_FLAGS_SIZE sizeof(Query_cache_query_flags)
 #define QUERY_CACHE_DB_LENGTH_SIZE 2
