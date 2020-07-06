@@ -655,7 +655,9 @@ public:
 		ut_ad(mutex_own(&recv_sys.mutex));
 		ut_ad(recv_no_ibuf_operations);
 		for (map::value_type& i : inits) {
-			i.second.created = false;
+			if (i.second.created) {
+                                i.second.created = false;
+                        }
 		}
 	}
 
@@ -2135,12 +2137,12 @@ same_page:
       case STORE_NO:
         if (!is_init)
           continue;
+        mlog_init.add(id, start_lsn);
         map::iterator i= pages.find(id);
         if (i == pages.end())
           continue;
         i->second.log.clear();
         pages.erase(i);
-        mlog_init.add(id, start_lsn);
       }
     }
 #if 1 /* MDEV-14425 FIXME: this must be in the checkpoint file only! */
