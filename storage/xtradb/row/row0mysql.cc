@@ -5390,6 +5390,11 @@ end:
 			goto funct_exit;
 		}
 
+                /* Skip the foreign key check when copy alter table happens */
+                if (old_is_tmp && !new_is_tmp && !trx->check_foreigns) {
+                        goto funct_exit;
+                }
+
 		/* We only want to switch off some of the type checking in
 		an ALTER, not in a RENAME. */
 
