@@ -4332,44 +4332,6 @@ end:
 			innobase_rename_vc_templ(table);
 		}
 
-		if (!old_is_tmp && !new_is_tmp)
-		{
-		/* We only want to switch off some of the type checking in
-		an ALTER TABLE, not in a RENAME. */
-		dict_names_t	fk_tables;
-
-		err = dict_load_foreigns(
-			table,
-			NULL,
-			NULL,
-			true,
-			use_fk
-			? DICT_ERR_IGNORE_NONE
-			: DICT_ERR_IGNORE_FK_NOKEY,
-			fk_tables);
-
-		if (err != DB_SUCCESS) {
-
-			if (old_is_tmp) {
-				ib::error() << "In ALTER TABLE "
-					<< ut_get_name(trx, new_name)
-					<< " has or is referenced in foreign"
-					" key constraints which are not"
-					" compatible with the new table"
-					" definition.";
-			} else {
-				ib::error() << "In RENAME TABLE table "
-					<< ut_get_name(trx, new_name)
-					<< " is referenced in foreign key"
-					" constraints which are not compatible"
-					" with the new table definition.";
-			}
-
-			trx->error_state = DB_SUCCESS;
-			trx->rollback();
-			trx->error_state = DB_SUCCESS;
-		}
-
 		/* Check whether virtual column or stored column affects
 		the foreign key constraint of the table. */
 		if (dict_foreigns_has_s_base_col(
@@ -4387,13 +4349,6 @@ end:
 		the table undergoes copy alter operation. */
 		dict_mem_table_free_foreign_vcol_set(table);
 		dict_mem_table_fill_foreign_vcol_set(table);
-
-		while (!fk_tables.empty()) {
-			dict_load_table(fk_tables.front(),
-					DICT_ERR_IGNORE_NONE);
-			fk_tables.pop_front();
-		}
-		}
 
 		table->data_dir_path= NULL;
 	}
