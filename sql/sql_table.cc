@@ -12969,7 +12969,7 @@ bool fk_handle_drop(THD *thd, TABLE_LIST *table, vector<FK_ddl_backup> &shares,
       if (0 != cmp_table(rk.foreign_db, table->db) ||
           (!drop_db && 0 != cmp_table(rk.foreign_table, table->table_name)))
       {
-        my_printf_error(ER_ROW_IS_REFERENCED_2, ER(ER_ROW_IS_REFERENCED), MYF(0));
+        my_error(ER_ROW_IS_REFERENCED_2, MYF(0), rk.foreign_id.str);
         return true;
       }
     }
