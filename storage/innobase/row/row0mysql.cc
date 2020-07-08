@@ -4598,11 +4598,11 @@ end:
 		dict_mem_table_free_foreign_vcol_set(table);
 		dict_mem_table_fill_foreign_vcol_set(table);
 
-		while (!fk_tables.empty()) {
-			dict_load_table(fk_tables.front(),
-					DICT_ERR_IGNORE_NONE);
-			fk_tables.pop_front();
-		}
+// 		while (!fk_tables.empty()) {
+// 			dict_load_table(fk_tables.front(),
+// 					DICT_ERR_IGNORE_NONE);
+// 			fk_tables.pop_front();
+// 		}
 
 		table->data_dir_path= NULL;
 	}
