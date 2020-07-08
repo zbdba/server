@@ -237,6 +237,7 @@ void
 st_parsing_options::reset()
 {
   allows_variable= TRUE;
+  lookup_keywords_after_qualifier= false;
 }
 
 
@@ -2080,6 +2081,13 @@ int Lex_input_stream::scan_ident_start(THD *thd, Lex_ident_cli_st *str)
 
   uint length= yyLength();
   yyUnget(); // ptr points now after last token char
+
+  if (thd->lex->parsing_options.lookup_keywords_after_qualifier)
+  {
+    if (int tokval= find_keyword(str, length, 0))
+      return tokval;
+  }
+
   str->set_ident(m_tok_start, length, is_8bit);
   m_cpp_text_start= m_cpp_tok_start;
   m_cpp_text_end= m_cpp_text_start + length;
@@ -8283,4 +8291,33 @@ bool LEX::tvc_finalize_derived()
     return true;
   current_select->linkage= DERIVED_TABLE_TYPE;
   return tvc_finalize();
+}
+
+
+bool LEX::map_data_type(const Lex_ident_sys_st &schema_name,
+                        Lex_field_type_st *type) const
+{
+  const Schema *schema= schema_name.str ?
+                        Schema::find_by_name(schema_name) :
+                        Schema::find_implied(thd);
+  if (!schema)
+  {
+    char buf[128];
+    const Name type_name= type->type_handler()->name();
+    my_snprintf(buf, sizeof(buf), "%.*s.%.*s",
+                (int) schema_name.length, schema_name.str,
+                (int) type_name.length(), type_name.ptr());
+#if MYSQL_VERSION_ID > 100500
+#error Please remove the old code
+    my_error(ER_UNKNOWN_DATA_TYPE, MYF(0), buf);
+#else
+    my_printf_error(ER_UNKNOWN_ERROR, "Unknown data type: '%-.64s'",
+                    MYF(0), buf);
+#endif
+    return true;
+  }
+  const Type_handler *mapped= schema->map_data_type(thd, type->type_handler());
+  if (mapped != type->type_handler())
+    type->set_handler(mapped);
+  return false;
 }
