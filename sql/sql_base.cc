@@ -4624,7 +4624,6 @@ handle_table(THD *thd, Query_tables_list *prelocking_ctx,
       Query_arena *arena, backup;
 
       arena= thd->activate_stmt_arena_if_needed(&backup);
-      *need_prelocking= TRUE;
 
       while ((fk= fk_list_it++))
       {
@@ -4644,6 +4643,8 @@ handle_table(THD *thd, Query_tables_list *prelocking_ctx,
                                        &fk->foreign_db, &fk->foreign_table,
                                        lock_type))
           continue;
+
+        *need_prelocking= TRUE;
 
         TABLE_LIST *tl= (TABLE_LIST *) thd->alloc(sizeof(TABLE_LIST));
         tl->init_one_table_for_prelocking(&fk->foreign_db,
