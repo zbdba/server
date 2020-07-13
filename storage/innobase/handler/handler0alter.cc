@@ -9456,6 +9456,7 @@ innobase_update_foreign_cache(
 
 	/* For complete loading of foreign keys, all associated tables must
 	also be loaded. */
+	// FIXME: move this to dict_load_foreings()
 	while (err == DB_SUCCESS && !fk_tables.empty()) {
 		dict_table_t*	table = dict_load_table(
 			fk_tables.front(), DICT_ERR_IGNORE_NONE);

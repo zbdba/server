@@ -2015,6 +2015,51 @@ retry_share:
     tc_add_table(thd, table);
   }
 
+  if (table_list->prelocking_placeholder == TABLE_LIST::PRELOCK_RK)
+  {
+    bool share_updated= false;
+    for (TABLE_LIST *tbl= thd->lex->query_tables; tbl != table_list; tbl= tbl->next_global)
+    {
+      DBUG_ASSERT(tbl != NULL);
+      if (!tbl->table)
+        continue;
+      for (FK_info &fk: tbl->table->s->foreign_keys)
+      {
+        if (0 != cmp_table(fk.ref_db(), table_list->db) ||
+            0 != cmp_table(fk.referenced_table, table_list->table_name))
+          continue;
+
+        bool ref_found= false;
+
+        for (FK_info &rk: table->s->referenced_keys)
+        {
+          if (0 != cmp_table(rk.foreign_db, tbl->db) ||
+              0 != cmp_table(rk.foreign_table, tbl->table_name))
+            continue;
+          ref_found= true;
+          break;
+        }
+
+        if (!ref_found)
+        {
+          if (table->s->fk_resolve_referenced_keys(thd, tbl->table->s))
+            goto err_lock;
+          share_updated= true;
+          break;
+        }
+      }
+    }
+    if (share_updated)
+    {
+      table->file->unbind_psi();
+      table->internal_set_needs_reopen(true);
+      tc_release_table(table);
+      (void) ot_ctx->request_backoff_action(Open_table_context::OT_REOPEN_TABLES,
+                                          NULL);
+      DBUG_RETURN(TRUE);
+    }
+  }
+
   if (!(flags & MYSQL_OPEN_HAS_MDL_LOCK) &&
       table->s->table_category < TABLE_CATEGORY_INFORMATION)
   {
@@ -4514,7 +4559,7 @@ bool table_already_fk_prelocked(TABLE_LIST *tl, LEX_CSTRING *db,
   for (; tl; tl= tl->next_global )
   {
     if (tl->lock_type >= lock_type &&
-        tl->prelocking_placeholder == TABLE_LIST::PRELOCK_FK &&
+        tl->prelocking_placeholder >= TABLE_LIST::PRELOCK_FK &&
         strcmp(tl->db.str, db->str) == 0 &&
         strcmp(tl->table_name.str, table->str) == 0)
       return true;
@@ -4624,7 +4669,6 @@ handle_table(THD *thd, Query_tables_list *prelocking_ctx,
       Query_arena *arena, backup;
 
       arena= thd->activate_stmt_arena_if_needed(&backup);
-      *need_prelocking= TRUE;
 
       while ((fk= fk_list_it++))
       {
@@ -4645,11 +4689,48 @@ handle_table(THD *thd, Query_tables_list *prelocking_ctx,
                                        lock_type))
           continue;
 
+        *need_prelocking= TRUE;
+
         TABLE_LIST *tl= (TABLE_LIST *) thd->alloc(sizeof(TABLE_LIST));
         tl->init_one_table_for_prelocking(&fk->foreign_db,
                                           &fk->foreign_table,
                                           NULL, lock_type,
                                           TABLE_LIST::PRELOCK_FK,
+                                          table_list->belong_to_view, op,
+                                          &prelocking_ctx->query_tables_last,
+                                          table_list->for_insert_data);
+      }
+      if (arena)
+        thd->restore_active_arena(arena, &backup);
+    }
+
+    if (table->s->foreign_keys.elements)
+    {
+      List_iterator<FK_info> fk_list_it(table->s->foreign_keys);
+      FK_info *fk;
+      Query_arena *arena, backup;
+
+      arena= thd->activate_stmt_arena_if_needed(&backup);
+
+      while ((fk= fk_list_it++))
+      {
+        uint8 op= table_list->trg_event_map;
+        thr_lock_type lock_type;
+        lock_type= TL_READ;
+
+        if (table_already_fk_prelocked(prelocking_ctx->query_tables,
+                                       fk->ref_db_ptr(), &fk->referenced_table,
+                                       lock_type))
+          continue;
+
+        *need_prelocking= TRUE;
+
+
+        TABLE_LIST *tl= (TABLE_LIST *) thd->alloc(sizeof(TABLE_LIST));
+        tl->init_one_table_for_prelocking(fk->ref_db_ptr(),
+                                          &fk->referenced_table,
+                                          NULL, lock_type,
+                                          TABLE_LIST::PRELOCK_RK,
                                           table_list->belong_to_view, op,
                                           &prelocking_ctx->query_tables_last,
                                           table_list->for_insert_data);

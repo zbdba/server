@@ -5877,6 +5877,22 @@ ha_innobase::open(const char* name, int, uint)
 		}
 	}
 
+	if (table->s->referenced_keys.elements > ib_table->referenced_set.size()) {
+		dict_names_t    fk_tables;
+		mutex_enter(&dict_sys.mutex);
+		dberr_t err = dict_load_foreigns(ib_table, table->s, NULL, false, DICT_ERR_IGNORE_NONE, fk_tables);
+		while (err == DB_SUCCESS && !fk_tables.empty()) {
+			dict_load_table(fk_tables.front(),
+					DICT_ERR_IGNORE_NONE);
+			fk_tables.pop_front();
+		}
+		mutex_exit(&dict_sys.mutex);
+		if (err != DB_SUCCESS) {
+			DBUG_RETURN(convert_error_code_to_mysql(
+						err, ib_table->flags, NULL));
+		}
+	}
+
 	m_prebuilt = row_create_prebuilt(ib_table, table->s->reclength);
 
 	m_prebuilt->default_rec = table->s->default_values;
@@ -21596,12 +21612,12 @@ dict_load_foreigns(
 	TABLE_LIST tl;
 	dict_foreign_t*	foreign;
 	dict_table_t*	for_table;
-	dict_table_t*	ref_table;
 	char buf[FN_REFLEN + 1];
 	size_t len;
+	dberr_t err;
 	const char*	      column_names[MAX_NUM_FK_COLUMNS];
 	const char*	      ref_column_names[MAX_NUM_FK_COLUMNS];
-	ut_ad(!share || !table);
+	ut_ad(share || table);
 	if (!share) {
 		LEX_CSTRING db;
 		LEX_CSTRING table_name;
@@ -21625,6 +21641,12 @@ dict_load_foreigns(
 		}
 		share= sa.share;
 	}
+	else if (!table)
+	{
+		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(share->db), LEX_STRING_WITH_LEN(share->table_name), 0, false);
+		table = dict_load_table(buf, ignore_err);
+	}
+
 	for (FK_info &fk: share->foreign_keys)
 	{
 		foreign = dict_mem_foreign_create();
@@ -21649,6 +21671,7 @@ dict_load_foreigns(
 			ref_column_names[i] = mem_heap_strdupl(foreign->heap, LEX_STRING_WITH_LEN(ref_col));
 			if (!ref_column_names[i])
 				return DB_OUT_OF_MEMORY;
+			++i;
 		}
 		foreign->id = mem_heap_strdupl(foreign->heap, fk.foreign_id.str, fk.foreign_id.length);
 		if (!foreign->id)
@@ -21689,26 +21712,25 @@ dict_load_foreigns(
 		memcpy(foreign->referenced_col_names, ref_column_names,
 		       foreign->n_fields * sizeof(void*));
 
-		ref_table = dict_table_check_if_in_cache_low(
-			foreign->referenced_table_name_lookup);
 		for_table = dict_table_check_if_in_cache_low(
 			foreign->foreign_table_name_lookup);
+
 		if (!for_table) {
 			/* To avoid recursively loading the tables related through
 			the foreign key constraints, the child table name is saved
 			here.  The child table will be loaded later, along with its
 			foreign key constraint. */
 
-			ut_a(ref_table != NULL);
+			ut_a(table != NULL);
 			fk_tables.push_back(
-				mem_heap_strdupl(ref_table->heap,
+				mem_heap_strdupl(table->heap,
 						foreign->foreign_table_name_lookup,
 						foreign_table_name_len));
 
 			dict_foreign_remove_from_cache(foreign);
 			return(DB_SUCCESS);
 		}
-		ut_a(for_table || ref_table);
+		ut_a(for_table || table);
 
 		/* Note that there may already be a foreign constraint object in
 		the dictionary cache for this constraint: then the following
@@ -21718,7 +21740,65 @@ dict_load_foreigns(
 		a new foreign key constraint but loading one from the data
 		dictionary. */
 
-		return(dict_foreign_add_to_cache(foreign, col_names, check_charsets, ignore_err));
+		err = dict_foreign_add_to_cache(foreign, col_names, check_charsets, ignore_err);
+		if (err != DB_SUCCESS)
+			return err;
+	}
+
+	if (!table)
+		return DB_SUCCESS;
+
+	if (share->referenced_keys.elements > table->referenced_set.size())
+	{
+		/* We don't have some foreign table because it was created earlier that this table. */
+		set<Table_name> tables_missing;
+		for (FK_info &rk: share->referenced_keys)
+		{
+			if (0 == cmp_table(rk.foreign_db, share->db) &&
+				0 == cmp_table(rk.foreign_table, share->table_name))
+				continue;
+			if (!tables_missing.insert({rk.foreign_db, rk.foreign_table})) {
+				return DB_OUT_OF_MEMORY;
+			}
+		}
+		/* In this case we assume that there is no referenced keys of that table in referenced_set.
+		If there are any we just skip that table from reloading. */
+		for (dict_foreign_t *rk: table->referenced_set)
+		{
+			char	db_buf[NAME_LEN + 1];
+			char	tbl_buf[NAME_LEN + 1];
+			LEX_CSTRING db = { db_buf, 0 };
+			LEX_CSTRING table_name = { tbl_buf, 0 };
+
+			if (!rk->foreign_table->parse_name<true>(db_buf, tbl_buf, &db.length, &table_name.length)) {
+				return DB_ERROR;
+			}
+
+			auto it = tables_missing.find({db, table_name});
+			if (it == tables_missing.end()) {
+				/* We don't know this foreign table. Reloading its foreign set will update this referenced set. */
+				continue;
+			}
+			tables_missing.erase(it);
+		}
+
+		for (const Table_name &t: tables_missing)
+		{
+			len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(t.db), LEX_STRING_WITH_LEN(t.name), 0, false);
+			dict_table_t *for_table = dict_table_check_if_in_cache_low(buf);
+			if (!for_table)
+			{
+				// not possible for DML (foreign table is written)
+				continue;
+			}
+			for (dict_foreign_t *fk: for_table->foreign_set)
+			{
+				// Actually we have to exclude keys not matching current table
+				err = dict_foreign_add_to_cache(fk, NULL, false, ignore_err);
+				if (err != DB_SUCCESS)
+					return err;
+			}
+		}
 	}
 	return DB_SUCCESS;
 }

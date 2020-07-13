@@ -3860,66 +3860,6 @@ dberr_t row_drop_table_after_create_fail(const char* name, trx_t* trx)
 	return row_drop_table_for_mysql(name, trx, SQLCOM_DROP_DB, true);
 }
 
-/*******************************************************************//**
-Drop all foreign keys in a database, see Bug#18942.
-Called at the end of row_drop_database_for_mysql().
-@return error code or DB_SUCCESS */
-static MY_ATTRIBUTE((nonnull, warn_unused_result))
-dberr_t
-drop_all_foreign_keys_in_db(
-/*========================*/
-	const char*	name,	/*!< in: database name which ends to '/' */
-	trx_t*		trx)	/*!< in: transaction handle */
-{
-	pars_info_t*	pinfo;
-	dberr_t		err;
-
-	ut_a(name[strlen(name) - 1] == '/');
-
-	pinfo = pars_info_create();
-
-	pars_info_add_str_literal(pinfo, "dbname", name);
-
-/** true if for_name is not prefixed with dbname */
-#define TABLE_NOT_IN_THIS_DB \
-"SUBSTR(for_name, 0, LENGTH(:dbname)) <> :dbname"
-
-	err = que_eval_sql(pinfo,
-			   "PROCEDURE DROP_ALL_FOREIGN_KEYS_PROC () IS\n"
-			   "foreign_id CHAR;\n"
-			   "for_name CHAR;\n"
-			   "found INT;\n"
-			   "DECLARE CURSOR cur IS\n"
-			   "SELECT ID, FOR_NAME FROM SYS_FOREIGN\n"
-			   "WHERE FOR_NAME >= :dbname\n"
-			   "LOCK IN SHARE MODE\n"
-			   "ORDER BY FOR_NAME;\n"
-			   "BEGIN\n"
-			   "found := 1;\n"
-			   "OPEN cur;\n"
-			   "WHILE found = 1 LOOP\n"
-			   "        FETCH cur INTO foreign_id, for_name;\n"
-			   "        IF (SQL % NOTFOUND) THEN\n"
-			   "                found := 0;\n"
-			   "        ELSIF (" TABLE_NOT_IN_THIS_DB ") THEN\n"
-			   "                found := 0;\n"
-			   "        ELSIF (1=1) THEN\n"
-			   "                DELETE FROM SYS_FOREIGN_COLS\n"
-			   "                WHERE ID = foreign_id;\n"
-			   "                DELETE FROM SYS_FOREIGN\n"
-			   "                WHERE ID = foreign_id;\n"
-			   "        END IF;\n"
-			   "END LOOP;\n"
-			   "CLOSE cur;\n"
-			   "COMMIT WORK;\n"
-			   "END;\n",
-			   FALSE, /* do not reserve dict mutex,
-				  we are already holding it */
-			   trx);
-
-	return(err);
-}
-
 /** Drop a database for MySQL.
 @param[in]	name	database name which ends at '/'
 @param[in]	trx	transaction handle
@@ -4062,20 +4002,6 @@ loop:
 
 		ut_free(table_name);
 		(*found)++;
-	}
-
-	/* Partitioning does not yet support foreign keys. */
-	if (err == DB_SUCCESS && !is_partition) {
-		/* after dropping all tables try to drop all leftover
-		foreign keys in case orphaned ones exist */
-		err = drop_all_foreign_keys_in_db(name, trx);
-
-		if (err != DB_SUCCESS) {
-			const std::string&	db = ut_get_name(trx, name);
-			ib::error() << "DROP DATABASE " << db << " failed with"
-				" error " << err << " while dropping all"
-				" foreign keys";
-		}
 	}
 
 	trx_commit_for_mysql(trx);

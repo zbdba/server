@@ -361,12 +361,16 @@ public:
   {
     auto ret= exception_wrapper<std::set<Key, Compare, Allocator> >::
       insert(value);
+    if (ret == std::set<Key, Compare, Allocator>::end())
+      return NULL;
     return &*ret;
   }
   const Key* insert(Key&& value)
   {
     auto ret= exception_wrapper<std::set<Key, Compare, Allocator> >::
       insert(std::forward<Key>(value));
+    if (ret == std::set<Key, Compare, Allocator>::end())
+      return NULL;
     return &*ret;
   }
 };
@@ -419,6 +423,11 @@ public:
     if (db_cmp > 0)
       return 1;
     return cmp_table(name, rhs.name);
+  }
+  // NB: needed for std::set
+  bool operator<(const Table_name &rhs) const
+  {
+    return cmp(rhs) < 0;
   }
 };
 

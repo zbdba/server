@@ -6132,7 +6132,7 @@ int THD::decide_logging_format(TABLE_LIST *tables)
 
       replicated_tables_count++;
 
-      if (tbl->prelocking_placeholder != TABLE_LIST::PRELOCK_FK)
+      if (tbl->prelocking_placeholder < TABLE_LIST::PRELOCK_FK)
       {
         if (tbl->lock_type <= TL_READ_NO_INSERT)
           has_read_tables= true;

@@ -1091,11 +1091,7 @@ dict_table_open_on_name(
 	ut_ad(table_name);
 	ut_ad(mutex_own(&dict_sys.mutex));
 
-	table = dict_table_check_if_in_cache_low(table_name);
-
-	if (table == NULL) {
-		table = dict_load_table(table_name, ignore_err);
-	}
+	table = dict_load_table(table_name, ignore_err);
 
 	ut_ad(!table || table->cached);
 
@@ -3020,7 +3016,8 @@ dict_foreign_add_to_cache(
 	}
 
 	if (for_in_cache) {
-		dict_foreign_free(foreign);
+		if (foreign != for_in_cache)
+			dict_foreign_free(foreign);
 	} else {
 		for_in_cache = foreign;
 
