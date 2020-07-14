@@ -4215,6 +4215,17 @@ public:
 };
 
 
+class Item_bool_static :public Item_bool
+{
+public:
+  Item_bool_static(const char *str_arg, longlong i):
+    Item_bool(NULL, str_arg, i) {};
+};
+
+extern Item_bool_static Item_false;
+extern Item_bool_static Item_true;
+
+
 class Item_uint :public Item_int
 {
 public:

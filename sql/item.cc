@@ -55,6 +55,8 @@ const char *item_empty_name="";
 const char *item_used_name= "\0";
 
 static int save_field_in_field(Field *, bool *, Field *, bool);
+Item_bool_static Item_false("FALSE", 0);
+Item_bool_static Item_true("TRUE", 1);
 
 
 /**
@@ -412,7 +414,6 @@ Item::Item(THD *thd):
   is_expensive_cache(-1), rsize(0), name(null_clex_str), orig_name(0),
   common_flags(IS_AUTO_GENERATED_NAME)
 {
-  DBUG_ASSERT(thd);
   marker= 0;
   maybe_null= null_value= with_window_func= with_field= false;
   in_rollup= 0;
@@ -421,6 +422,9 @@ Item::Item(THD *thd):
    /* Initially this item is not attached to any JOIN_TAB. */
   join_tab_idx= MAX_TABLES;
 
+   /* thd is NULL in case of static items like Item_true */
+  if (!thd)
+    return;
   /* Put item in free list so that we can free all items at end */
   next= thd->free_list;
   thd->free_list= this;
