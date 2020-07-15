@@ -12569,6 +12569,14 @@ create_table_info_t::create_foreign_keys()
 		return (DB_NO_FK_ON_S_BASE_COL);
 	}
 
+	table->foreign_set.insert(local_fk_set.begin(),
+					local_fk_set.end());
+	std::for_each(local_fk_set.begin(), local_fk_set.end(),
+			dict_foreign_add_to_referenced_table());
+	local_fk_set.clear();
+
+	dict_mem_table_fill_foreign_vcol_set(table);
+
 	return (DB_SUCCESS);
 }
 
@@ -12698,7 +12706,7 @@ int create_table_info_t::create_table(bool create_fk)
 		/* Check that also referencing constraints are ok */
 		dict_names_t	fk_tables;
 		// FIXME: is it needed here? I guess not.
-		err = dict_load_foreigns(NULL, m_form->s, NULL, true,
+		err = dict_load_foreigns(m_table, m_form->s, NULL, true,
 					 DICT_ERR_IGNORE_NONE, fk_tables);
 		while (err == DB_SUCCESS && !fk_tables.empty()) {
 			dict_load_table(fk_tables.front(),
@@ -21602,6 +21610,7 @@ dict_load_foreigns(
 	bool			check_charsets,	/*!< in: whether to check
 						charset compatibility */
 	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */
+	// FIXME: remove
 	dict_names_t&		fk_tables)
 						/*!< out: stack of table
 						names which must be loaded
@@ -21611,13 +21620,12 @@ dict_load_foreigns(
 	Share_acquire sa;
 	TABLE_LIST tl;
 	dict_foreign_t*	foreign;
-	dict_table_t*	for_table;
 	char buf[FN_REFLEN + 1];
 	size_t len;
 	dberr_t err;
 	const char*	      column_names[MAX_NUM_FK_COLUMNS];
 	const char*	      ref_column_names[MAX_NUM_FK_COLUMNS];
-	ut_ad(share || table);
+	ut_ad(table);
 	if (!share) {
 		LEX_CSTRING db;
 		LEX_CSTRING table_name;
@@ -21641,16 +21649,10 @@ dict_load_foreigns(
 		}
 		share= sa.share;
 	}
-	else if (!table)
-	{
-		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(share->db), LEX_STRING_WITH_LEN(share->table_name), 0, false);
-		table = dict_load_table(buf, ignore_err);
-	}
 
 	for (FK_info &fk: share->foreign_keys)
 	{
 		foreign = dict_mem_foreign_create();
-		const ulint foreign_table_name_len = 0; // FIXME
 		if (!innobase_set_foreign_key_option(foreign, &fk)) {
 			return DB_ERROR;
 		}
@@ -21673,14 +21675,16 @@ dict_load_foreigns(
 				return DB_OUT_OF_MEMORY;
 			++i;
 		}
-		foreign->id = mem_heap_strdupl(foreign->heap, fk.foreign_id.str, fk.foreign_id.length);
+
+		size_t dblen = table->name.dblen() + 1;
+		foreign->id = static_cast<char*>(mem_heap_alloc(
+			foreign->heap, dblen + fk.foreign_id.length + 1));
 		if (!foreign->id)
 			return DB_OUT_OF_MEMORY;
-		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(fk.foreign_db), LEX_STRING_WITH_LEN(fk.foreign_table), 0, false);
-		if (!len) {
-			return DB_ERROR;
-		}
-		foreign->foreign_table_name = mem_heap_strdupl(foreign->heap, buf, len);
+		memcpy(foreign->id, table->name.m_name, dblen);
+		strcpy(foreign->id + dblen, fk.foreign_id.str);
+
+		foreign->foreign_table_name = mem_heap_strdup(foreign->heap, table->name.m_name);
 		if (!foreign->foreign_table_name)
 			return DB_OUT_OF_MEMORY;
 		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(fk.referenced_db), LEX_STRING_WITH_LEN(fk.referenced_table), 0, false);
@@ -21712,26 +21716,6 @@ dict_load_foreigns(
 		memcpy(foreign->referenced_col_names, ref_column_names,
 		       foreign->n_fields * sizeof(void*));
 
-		for_table = dict_table_check_if_in_cache_low(
-			foreign->foreign_table_name_lookup);
-
-		if (!for_table) {
-			/* To avoid recursively loading the tables related through
-			the foreign key constraints, the child table name is saved
-			here.  The child table will be loaded later, along with its
-			foreign key constraint. */
-
-			ut_a(table != NULL);
-			fk_tables.push_back(
-				mem_heap_strdupl(table->heap,
-						foreign->foreign_table_name_lookup,
-						foreign_table_name_len));
-
-			dict_foreign_remove_from_cache(foreign);
-			return(DB_SUCCESS);
-		}
-		ut_a(for_table || table);
-
 		/* Note that there may already be a foreign constraint object in
 		the dictionary cache for this constraint: then the following
 		call only sets the pointers in it to point to the appropriate table
@@ -21744,9 +21728,6 @@ dict_load_foreigns(
 		if (err != DB_SUCCESS)
 			return err;
 	}
-
-	if (!table)
-		return DB_SUCCESS;
 
 	if (share->referenced_keys.elements > table->referenced_set.size())
 	{
