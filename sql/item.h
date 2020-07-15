@@ -1953,7 +1953,7 @@ public:
   virtual bool limit_index_condition_pushdown_processor(void *arg) { return 0; }
   virtual bool exists2in_processor(void *arg) { return 0; }
   virtual bool find_selective_predicates_list_processor(void *arg) { return 0; }
-  bool cleanup_is_expensive_cache_processor(void *arg)
+  virtual bool cleanup_is_expensive_cache_processor(void *arg)
   {
     is_expensive_cache= (int8)(-1);
     return 0;
@@ -3204,6 +3204,8 @@ public:
   bool check_partition_func_processor(void *int_arg) { return false;}
   bool const_item() const { return true; }
   bool basic_const_item() const { return true; }
+  bool is_expensive() { return false; }
+  bool cleanup_is_expensive_cache_processor(void *arg) { return 0; }
 };
 
 
@@ -4200,6 +4202,7 @@ public:
     Item_int(thd, str_arg, i, 1) {}
   Item_bool(THD *thd, bool i) :Item_int(thd, (longlong) i, 1) { }
   bool is_bool_literal() const { return true; }
+  void print(String *str, enum_query_type query_type);
   Item *neg_transformer(THD *thd);
   const Type_handler *type_handler() const
   { return &type_handler_bool; }
@@ -4220,10 +4223,20 @@ class Item_bool_static :public Item_bool
 public:
   Item_bool_static(const char *str_arg, longlong i):
     Item_bool(NULL, str_arg, i) {};
+
+  /* Create dummy functions for things that may change the static item */
+  void fix_length_and_charset(uint32 max_char_length_arg, CHARSET_INFO *cs)
+  {}
+  void fix_char_length(size_t max_char_length_arg)
+  {}
+  void set_join_tab_idx(uint join_tab_idx_arg)
+  { DBUG_ASSERT(0); }
 };
 
-extern Item_bool_static Item_false;
-extern Item_bool_static Item_true;
+extern Item_bool_static Item_false, Item_true;
+#ifndef DBUG_OFF
+extern Item_bool_static Item_false_backup, Item_true_backup;
+#endif
 
 
 class Item_uint :public Item_int

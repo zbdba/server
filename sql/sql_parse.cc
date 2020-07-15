@@ -2314,6 +2314,13 @@ dispatch_end:
     thd->update_server_status();
     thd->protocol->end_statement();
     query_cache_end_of_result(thd);
+    /* Check that the query didn't change const items */
+#ifndef DBUG_OFF
+    DBUG_ASSERT(!memcmp((void*) &Item_false, (void*) &Item_false_backup,
+                       sizeof(Item_false)));
+    DBUG_ASSERT(!memcmp((void*) &Item_true, (void*) &Item_true_backup,
+                        sizeof(Item_true)));
+#endif /* DBUG_OFF */
   }
   if (drop_more_results)
     thd->server_status&= ~SERVER_MORE_RESULTS_EXISTS;

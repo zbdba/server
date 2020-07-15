@@ -22576,6 +22576,8 @@ make_cond_for_table_from_pred(THD *thd, Item *root_cond, Item *cond,
       return new_cond;
     }
   }
+  else if (cond->basic_const_item())
+    return cond;
 
   if (is_top_and_level && used_table == rand_table_bit &&
       (cond->used_tables() & ~OUTER_REF_TABLE_BIT) != rand_table_bit)

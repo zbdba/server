@@ -58,6 +58,10 @@ static int save_field_in_field(Field *, bool *, Field *, bool);
 Item_bool_static Item_false("FALSE", 0);
 Item_bool_static Item_true("TRUE", 1);
 
+#ifndef DBUG_OFF
+Item_bool_static Item_false_backup("FALSE", 0);
+Item_bool_static Item_true_backup("TRUE", 1);
+#endif
 
 /**
   Compare two Items for List<Item>::add_unique()
@@ -98,6 +102,10 @@ void item_init(void)
 {
   item_func_sleep_init();
   uuid_short_init();
+#ifndef DBUG_OFF
+  memcpy((void*) &Item_false_backup, (void*) &Item_false, sizeof(Item_false));
+  memcpy((void*) &Item_true_backup,  (void*) &Item_true,  sizeof(Item_true));
+#endif
 }
 
 
@@ -3628,11 +3636,25 @@ String *Item_int::val_str(String *str)
   return str;
 }
 
+
 void Item_int::print(String *str, enum_query_type query_type)
 {
   // my_charset_bin is good enough for numbers
   str_value.set_int(value, unsigned_flag, &my_charset_bin);
   str->append(str_value);
+}
+
+
+/*
+  This function is needed to ensure that Item_bool_static doesn't change
+  the value of the member str_value.
+*/
+
+void Item_bool::print(String *str, enum_query_type query_type)
+{
+  // my_charset_bin is good enough for numbers
+  String tmp(value ? (char*) "1" : (char*) "0" , 1, &my_charset_bin);
+  str->append(tmp);
 }
 
 
