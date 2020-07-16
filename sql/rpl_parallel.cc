@@ -396,13 +396,14 @@ do_gco_wait(rpl_group_info *rgi, group_commit_orderer *gco,
 }
 
 
-static void
+static bool
 do_ftwrl_wait(rpl_group_info *rgi,
               bool *did_enter_cond, PSI_stage_info *old_stage)
 {
   THD *thd= rgi->thd;
   rpl_parallel_entry *entry= rgi->parallel_entry;
   uint64 sub_id= rgi->gtid_sub_id;
+  bool aborted= false;
   DBUG_ENTER("do_ftwrl_wait");
 
   mysql_mutex_assert_owner(&entry->LOCK_parallel_entry);
@@ -425,7 +426,10 @@ do_ftwrl_wait(rpl_group_info *rgi,
     do
     {
       if (entry->force_abort || rgi->worker_error)
+      {
+        aborted= true;
         break;
+      }
       if (unlikely(thd->check_killed()))
       {
         slave_output_error_info(rgi, thd);
@@ -444,7 +448,7 @@ do_ftwrl_wait(rpl_group_info *rgi,
   if (sub_id > entry->largest_started_sub_id)
     entry->largest_started_sub_id= sub_id;
 
-  DBUG_VOID_RETURN;
+  DBUG_RETURN(aborted);
 }
 
 
@@ -530,7 +534,18 @@ rpl_unpause_after_ftwrl(THD *thd)
     mysql_mutex_lock(&e->LOCK_parallel_entry);
     rpt->pause_for_ftwrl = false;
     mysql_mutex_unlock(&rpt->LOCK_rpl_thread);
-    e->pause_sub_id= (uint64)ULONGLONG_MAX;
+    /*
+     * Dont change pause_sub_id if force_abort is on
+     * Reason:- This will make skip_event_group one while calling
+     * do_ftwrl_wait which will make worker to execute transaction in the
+     * queue. And will create gaps, Transaction between setting of pause_sub_id
+     * and unsetting wont be applied on slave. So if there is force_abort
+     * we wont change the pause_sub_id.
+     * We are not changing pause_for_ftwrl because we want worker to exit in
+     * event of STOP SLAVE otherwise it will hang forever
+    */
+    if (!e->force_abort)
+      e->pause_sub_id= (uint64)ULONGLONG_MAX;
     mysql_cond_broadcast(&e->COND_parallel_entry);
     mysql_mutex_unlock(&e->LOCK_parallel_entry);
   }
@@ -1224,7 +1239,7 @@ handle_rpl_parallel_thread(void *arg)
           rgi->worker_error= 1;
         }
         if (likely(!skip_event_group))
-          do_ftwrl_wait(rgi, &did_enter_cond, &old_stage);
+          skip_event_group= do_ftwrl_wait(rgi, &did_enter_cond, &old_stage);
 
         /*
           Register ourself to wait for the previous commit, if we need to do
