@@ -8415,6 +8415,7 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
   List_iterator<Key> key_it(alter_info->key_list);
   List_iterator<Create_field> find_it(new_create_list);
   List_iterator<Create_field> field_it(new_create_list);
+  List_iterator<FK_info> fk_it(table->s->foreign_keys);
   List<Key_part_spec> key_parts;
   List<Virtual_column_info> new_constraint_list;
   uint db_create_options= (table->s->db_create_options
@@ -8848,8 +8849,9 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
   /*
     Collect all foreign keys which isn't in drop list.
   */
-  for (const FK_info &fk: table->s->foreign_keys)
+  while (FK_info *fk_ptr= fk_it++)
   {
+    const FK_info &fk= *fk_ptr;
     Foreign_key *key;
     Alter_drop *drop;
     DBUG_ASSERT(fk.foreign_id.str);
@@ -8886,6 +8888,7 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
       }
       alter_info->tmp_drop_list.push_back(drop); // FIXME: remove in MDEV-21052
       drop_it.remove();
+      fk_it.remove();
       while ((drop= drop_it++))
       {
         if (drop->type == Alter_drop::FOREIGN_KEY &&
@@ -12486,9 +12489,23 @@ bool TABLE_SHARE::fk_handle_create(THD *thd, FK_create_vector &shares)
   return false;
 }
 
+/**
+  @brief  Used in ALTER TABLE. Prepares data for conducting update on relates shares
+  foreign_keys/referenced_keys which is done by fk_handle_alter().
 
-// Used in ALTER TABLE
-bool Alter_table_ctx::fk_prepare_rename(TABLE *table, Create_field *def, set<FK_table_to_lock> &fk_tables_to_lock)
+  Updates table's share as well. This is needed for prepare_create_table() and
+  for InnoDB engine which doesn't flush foreign cache on inplace alter.
+
+
+  @param[in]    def               Rename column action
+  @param[out]   fk_tables_to_lock Referenced/foreign tables to be locked by
+                                  mysql_prepare_alter_table()
+
+  @return                         Error status
+*/
+
+bool Alter_table_ctx::fk_prepare_rename(TABLE *table, Create_field *def,
+                                        set<FK_table_to_lock> &fk_tables_to_lock)
 {
   Table_name altered_table(table->s->db, table->s->table_name);
   for (const FK_info &fk: table->s->foreign_keys)

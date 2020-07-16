@@ -3016,11 +3016,16 @@ dict_foreign_add_to_cache(
 	}
 
 	if (for_in_cache) {
-		if (foreign != for_in_cache)
-			dict_foreign_free(foreign);
+		if (foreign != for_in_cache) {
+			if (for_table != for_in_cache->foreign_table) {
+				dict_foreign_remove_from_cache(for_in_cache);
+				for_in_cache = foreign;
+			} else {
+				dict_foreign_free(foreign);
+			}
+		}
 	} else {
 		for_in_cache = foreign;
-
 	}
 
 	if (ref_table && !for_in_cache->referenced_table) {

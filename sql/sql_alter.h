@@ -436,6 +436,7 @@ public:
   bool fk_handle_alter(THD *thd);
   void fk_release_locks(THD *thd);
 
+  // Backup for the table we altering. NB: auto-rollback if not committed.
   FK_table_backup fk_table_backup;
   // NB: share is owned and released by fk_shares
   map<TABLE_SHARE *, FK_ref_backup> fk_ref_backup;

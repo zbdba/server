@@ -2023,6 +2023,8 @@ retry_share:
       DBUG_ASSERT(tbl != NULL);
       if (!tbl->table)
         continue;
+      if (tbl->table->s == table->s)
+        continue; // skip self-references
       for (FK_info &fk: tbl->table->s->foreign_keys)
       {
         if (0 != cmp_table(fk.ref_db(), table_list->db) ||
@@ -4568,6 +4570,20 @@ bool table_already_fk_prelocked(TABLE_LIST *tl, LEX_CSTRING *db,
 }
 
 
+bool table_already_prelocked(TABLE_LIST *tl, LEX_CSTRING *db,
+                             LEX_CSTRING *table, thr_lock_type lock_type)
+{
+  for (; tl; tl= tl->next_global )
+  {
+    if (tl->lock_type >= lock_type &&
+        strcmp(tl->db.str, db->str) == 0 &&
+        strcmp(tl->table_name.str, table->str) == 0)
+      return true;
+  }
+  return false;
+}
+
+
 static bool internal_table_exists(TABLE_LIST *global_list,
                                   const char *table_name)
 {
@@ -4718,9 +4734,9 @@ handle_table(THD *thd, Query_tables_list *prelocking_ctx,
         thr_lock_type lock_type;
         lock_type= TL_READ;
 
-        if (table_already_fk_prelocked(prelocking_ctx->query_tables,
-                                       fk->ref_db_ptr(), &fk->referenced_table,
-                                       lock_type))
+        if (table_already_prelocked(prelocking_ctx->query_tables,
+                                    fk->ref_db_ptr(), &fk->referenced_table,
+                                    lock_type))
           continue;
 
         *need_prelocking= TRUE;
