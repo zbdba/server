@@ -3134,9 +3134,8 @@ fil_ibd_open(
 
 		mutex_exit(&fil_system.mutex);
 
-		if (space && validate && !srv_read_only_mode) {
-			fsp_flags_try_adjust(space,
-					     flags & ~FSP_FLAGS_MEM_MASK);
+		if (space && validate) {
+			fsp_flags_try_adjust(space, flags);
 		}
 
 		return space;
@@ -3440,11 +3439,11 @@ skip_validate:
 		df_dict.is_open() ? df_dict.filepath() :
 		df_default.filepath(), OS_FILE_CLOSED, 0, false, true);
 
-	if (validate && purpose != FIL_TYPE_IMPORT && !srv_read_only_mode) {
+	if (validate && purpose != FIL_TYPE_IMPORT) {
 		df_remote.close();
 		df_dict.close();
 		df_default.close();
-		fsp_flags_try_adjust(space, flags & ~FSP_FLAGS_MEM_MASK);
+		fsp_flags_try_adjust(space, flags);
 	}
 
 	if (err) *err = DB_SUCCESS;
@@ -3835,44 +3834,53 @@ fil_file_readdir_next_file(
 @param[in]	flags		desired tablespace flags */
 void fsp_flags_try_adjust(fil_space_t* space, ulint flags)
 {
-	ut_ad(!srv_read_only_mode);
-	ut_ad(fil_space_t::is_valid_flags(flags, space->id));
-	if (space->full_crc32() || fil_space_t::full_crc32(flags)) {
-		return;
-	}
+	mtr_t	mtr;	
+	ulint persistent_flags = flags & ~FSP_FLAGS_MEM_MASK;
+
+	ut_ad(fil_space_t::is_valid_flags(persistent_flags, space->id));
 	if (!space->size && (space->purpose != FIL_TYPE_TABLESPACE
 			     || !fil_space_get_size(space->id))) {
 		return;
 	}
+
+	if (space->full_crc32() && fil_space_t::full_crc32(flags)
+	    && fil_space_t::is_flags_equal(persistent_flags, space->flags)
+	    && (fil_space_t::get_compression_algo(flags)
+		== fil_space_t::get_compression_algo(space->flags))) {
+		goto func_exit;
+	}
+
 	/* This code is executed during server startup while no
 	connections are allowed. We do not need to protect against
 	DROP TABLE by fil_space_acquire(). */
-	mtr_t	mtr;
 	mtr.start();
 	if (buf_block_t* b = buf_page_get(
 		    page_id_t(space->id, 0), space->zip_size(),
 		    RW_X_LATCH, &mtr)) {
 		ulint f = fsp_header_get_flags(b->frame);
-		if (fil_space_t::full_crc32(f)) {
-			goto func_exit;
-		}
-		if (fil_space_t::is_flags_equal(f, flags)) {
+
+		if (fil_space_t::is_flags_equal(f, persistent_flags)) {
+			mtr.commit();
 			goto func_exit;
 		}
 		/* Suppress the message if only the DATA_DIR flag to differs. */
-		if ((f ^ flags) & ~(1U << FSP_FLAGS_POS_RESERVED)) {
+		if ((f ^ persistent_flags) & ~(1U << FSP_FLAGS_POS_RESERVED)) {
 			ib::warn()
 				<< "adjusting FSP_SPACE_FLAGS of file '"
 				<< UT_LIST_GET_FIRST(space->chain)->name
 				<< "' from " << ib::hex(f)
-				<< " to " << ib::hex(flags);
+				<< " to " << ib::hex(persistent_flags);
 		}
-		mtr.set_named_space(space);
-		mlog_write_ulint(FSP_HEADER_OFFSET + FSP_SPACE_FLAGS
-				 + b->frame, flags, MLOG_4BYTES, &mtr);
+
+		if (!srv_read_only_mode) {
+			mtr.set_named_space(space);
+			mlog_write_ulint(FSP_HEADER_OFFSET + FSP_SPACE_FLAGS
+					 + b->frame, persistent_flags, MLOG_4BYTES, &mtr);
+		}
 	}
-func_exit:
 	mtr.commit();
+func_exit:
+	space->flags |= flags & FSP_FLAGS_MEM_MASK;
 }
 
 /** Determine if a matching tablespace exists in the InnoDB tablespace
@@ -3912,15 +3920,8 @@ fil_space_for_table_exists_in_mem(
 			goto func_exit;
 		}
 
-		/* Adjust the flags that are in FSP_FLAGS_MEM_MASK.
-		FSP_SPACE_FLAGS will not be written back here. */
-		space->flags = (space->flags & ~FSP_FLAGS_MEM_MASK)
-			| (expected_flags & FSP_FLAGS_MEM_MASK);
 		mutex_exit(&fil_system.mutex);
-		if (!srv_read_only_mode) {
-			fsp_flags_try_adjust(space, expected_flags
-					     & ~FSP_FLAGS_MEM_MASK);
-		}
+		fsp_flags_try_adjust(space, expected_flags);
 		return space;
 	}
 

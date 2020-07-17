@@ -435,8 +435,8 @@ struct fil_space_t
 		ulint space_page_ssize = FSP_FLAGS_FCRC32_GET_PAGE_SSIZE(
 			expected);
 
-		if (page_ssize) {
-			if (space_page_ssize != 5) {
+		if (space_page_ssize == 5) {
+			if (page_ssize) {
 				return false;
 			}
 		} else if (space_page_ssize != page_ssize) {
