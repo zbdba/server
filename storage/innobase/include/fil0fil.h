@@ -133,15 +133,18 @@ class range_set
 private:
   range_set_t ranges;
 
-  range_set_t::iterator find(uint32_t value)
+  range_set_t::iterator find(uint32_t value) const
   {
     auto r_offset= ranges.lower_bound({value, value});
-    auto r_end= ranges.end();
-    if (r_offset == r_end)
+    const auto r_end= ranges.end();
+    if (r_offset != r_end);
+    else if (empty())
+      return r_end;
+    else
       r_offset= std::prev(r_end);
     if (r_offset->first <= value && r_offset->last >= value)
       return r_offset;
-    return ranges.end();
+    return r_end;
   }
 public:
   /** Merge the current range with previous range.
@@ -205,7 +208,7 @@ public:
   @param[in]	value	Value to be removed. */
   void remove_value(uint32_t value)
   {
-    if (ranges.empty())
+    if (empty())
       return;
     range_t new_range {value, value};
     range_set_t::iterator range= ranges.lower_bound(new_range);
@@ -295,7 +298,7 @@ new_range:
     return false;
   }
 
-  bool contains(uint32_t value)
+  bool contains(uint32_t value) const
   {
     return find(value) != ranges.end();
   }
