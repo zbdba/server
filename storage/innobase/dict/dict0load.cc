@@ -63,17 +63,11 @@ static const char* SYSTEM_TABLE_NAME[] = {
 /** Loads a table definition and also all its index definitions.
 
 Loads those foreign key constraints whose referenced table is already in
-dictionary cache.  If a foreign key constraint is not loaded, then the
-referenced table is pushed into the output stack (fk_tables), if it is not
-NULL.  These tables must be subsequently loaded so that all the foreign
-key constraints are loaded into memory.
+dictionary cache.
 
 @param[in]	name		Table name in the db/tablename format
 @param[in]	ignore_err	Error to be ignored when loading table
 				and its index definition
-@param[out]	fk_tables	Related table names that must also be
-				loaded to ensure that all foreign key
-				constraints are loaded.
 @return table, NULL if does not exist; if the table is stored in an
 .ibd file, but the file does not exist, then we set the
 file_unreadable flag in the table object we return */
@@ -81,8 +75,7 @@ static
 dict_table_t*
 dict_load_table_one(
 	const table_name_t&	name,
-	dict_err_ignore_t	ignore_err,
-	dict_names_t&		fk_tables);
+	dict_err_ignore_t	ignore_err);
 
 /** Load a table definition from a SYS_TABLES record to dict_table_t.
 Do not load any columns or indexes.
@@ -2582,9 +2575,7 @@ a foreign key references columns in this table.
 flag in the table object we return. */
 dict_table_t* dict_load_table(const char* name, dict_err_ignore_t ignore_err)
 {
-	dict_names_t			fk_list;
 	dict_table_t*			result;
-	dict_names_t::iterator		i;
 
 	DBUG_ENTER("dict_load_table");
 	DBUG_PRINT("dict_load_table", ("loading table: '%s'", name));
@@ -2595,14 +2586,7 @@ dict_table_t* dict_load_table(const char* name, dict_err_ignore_t ignore_err)
 
 	if (!result) {
 		result = dict_load_table_one(const_cast<char*>(name),
-					     ignore_err, fk_list);
-		while (!fk_list.empty()) {
-			if (!dict_table_check_if_in_cache_low(fk_list.front()))
-				dict_load_table_one(
-					const_cast<char*>(fk_list.front()),
-					ignore_err, fk_list);
-			fk_list.pop_front();
-		}
+					     ignore_err);
 	}
 
 	DBUG_RETURN(result);
@@ -2687,17 +2671,11 @@ dict_load_tablespace(
 /** Loads a table definition and also all its index definitions.
 
 Loads those foreign key constraints whose referenced table is already in
-dictionary cache.  If a foreign key constraint is not loaded, then the
-referenced table is pushed into the output stack (fk_tables), if it is not
-NULL.  These tables must be subsequently loaded so that all the foreign
-key constraints are loaded into memory.
+dictionary cache.
 
 @param[in]	name		Table name in the db/tablename format
 @param[in]	ignore_err	Error to be ignored when loading table
 				and its index definition
-@param[out]	fk_tables	Related table names that must also be
-				loaded to ensure that all foreign key
-				constraints are loaded.
 @return table, NULL if does not exist; if the table is stored in an
 .ibd file, but the file does not exist, then we set the
 file_unreadable flag in the table object we return */
@@ -2705,8 +2683,7 @@ static
 dict_table_t*
 dict_load_table_one(
 	const table_name_t&	name,
-	dict_err_ignore_t	ignore_err,
-	dict_names_t&		fk_tables)
+	dict_err_ignore_t	ignore_err)
 {
 	dberr_t		err;
 	dict_table_t*	sys_tables;
@@ -2880,7 +2857,7 @@ corrupted:
 		/* Don't attempt to load the indexes from disk. */
 	} else if (err == DB_SUCCESS) {
 		err = dict_load_foreigns(table, NULL, NULL, true,
-					 ignore_err, fk_tables);
+					 ignore_err);
 
 		if (err != DB_SUCCESS) {
 			ib::warn() << "Load table " << table->name

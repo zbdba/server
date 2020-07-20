@@ -5878,14 +5878,8 @@ ha_innobase::open(const char* name, int, uint)
 	}
 
 	if (table->s->referenced_keys.elements > ib_table->referenced_set.size()) {
-		dict_names_t    fk_tables;
 		mutex_enter(&dict_sys.mutex);
-		dberr_t err = dict_load_foreigns(ib_table, table->s, NULL, false, DICT_ERR_IGNORE_NONE, fk_tables);
-		while (err == DB_SUCCESS && !fk_tables.empty()) {
-			dict_load_table(fk_tables.front(),
-					DICT_ERR_IGNORE_NONE);
-			fk_tables.pop_front();
-		}
+		dberr_t err = dict_load_foreigns(ib_table, table->s, NULL, false, DICT_ERR_IGNORE_NONE);
 		mutex_exit(&dict_sys.mutex);
 		if (err != DB_SUCCESS) {
 			DBUG_RETURN(convert_error_code_to_mysql(
@@ -12704,15 +12698,9 @@ int create_table_info_t::create_table(bool create_fk)
 
 	if (err == DB_SUCCESS) {
 		/* Check that also referencing constraints are ok */
-		dict_names_t	fk_tables;
 		// FIXME: is it needed here? I guess not.
 		err = dict_load_foreigns(m_table, m_form->s, NULL, true,
-					 DICT_ERR_IGNORE_NONE, fk_tables);
-		while (err == DB_SUCCESS && !fk_tables.empty()) {
-			dict_load_table(fk_tables.front(),
-					DICT_ERR_IGNORE_NONE);
-			fk_tables.pop_front();
-		}
+					 DICT_ERR_IGNORE_NONE);
 	}
 
 	switch (err) {
@@ -21609,13 +21597,7 @@ dict_load_foreigns(
 						to use table->col_names */
 	bool			check_charsets,	/*!< in: whether to check
 						charset compatibility */
-	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */
-	// FIXME: remove
-	dict_names_t&		fk_tables)
-						/*!< out: stack of table
-						names which must be loaded
-						subsequently to load all the
-						foreign key constraints. */
+	dict_err_ignore_t	ignore_err)	/*!< in: error to be ignored */
 {
 	Share_acquire sa;
 	TABLE_LIST tl;
@@ -21626,7 +21608,7 @@ dict_load_foreigns(
 	const char*	      column_names[MAX_NUM_FK_COLUMNS];
 	const char*	      ref_column_names[MAX_NUM_FK_COLUMNS];
 	ut_ad(table);
-	if (!share) { // FIXME: remove
+	if (!share) { // NB: dict_load_table_one() codepath
 		LEX_CSTRING db;
 		LEX_CSTRING table_name;
 		char	db_buf[NAME_LEN + 1];

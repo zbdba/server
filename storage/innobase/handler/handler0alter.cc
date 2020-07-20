@@ -9423,23 +9423,19 @@ innobase_update_foreign_cache(
 	/* Load the old or added foreign keys from the data dictionary
 	and prevent the table from being evicted from the data
 	dictionary cache (work around the lack of WL#6049). */
-	dict_names_t	fk_tables;
 
 	err = dict_load_foreigns(user_table, altered_table->s,
 				 ctx->col_names, true,
-				 DICT_ERR_IGNORE_NONE,
-				 fk_tables);
+				 DICT_ERR_IGNORE_NONE);
 
 	if (err == DB_CANNOT_ADD_CONSTRAINT) {
-		fk_tables.clear();
 
 		/* It is possible there are existing foreign key are
 		loaded with "foreign_key checks" off,
 		so let's retry the loading with charset_check is off */
 		err = dict_load_foreigns(user_table, altered_table->s,
 					 ctx->col_names, false,
-					 DICT_ERR_IGNORE_NONE,
-					 fk_tables);
+					 DICT_ERR_IGNORE_NONE);
 
 		/* The load with "charset_check" off is successful, warn
 		the user that the foreign key has loaded with mis-matched
@@ -9453,27 +9449,6 @@ innobase_update_foreign_cache(
 				" are loaded with charset check off",
 				user_table->name.m_name);
 		}
-	}
-
-	/* For complete loading of foreign keys, all associated tables must
-	also be loaded. */
-	// FIXME: move this to dict_load_foreings()
-	while (err == DB_SUCCESS && !fk_tables.empty()) {
-		dict_table_t*	table = dict_load_table(
-			fk_tables.front(), DICT_ERR_IGNORE_NONE);
-
-		if (table == NULL) {
-			err = DB_TABLE_NOT_FOUND;
-			ib::error()
-				<< "Failed to load table '"
-				<< table_name_t(const_cast<char*>
-						(fk_tables.front()))
-				<< "' which has a foreign key constraint with"
-				<< " table '" << user_table->name << "'.";
-			break;
-		}
-
-		fk_tables.pop_front();
 	}
 
 	DBUG_RETURN(err);

@@ -973,11 +973,6 @@ int innobase_rollback_by_xid(handlerton* hton, XID* xid);
 /** Free tablespace resources allocated. */
 void innobase_space_shutdown();
 
-
-/** A stack of table names related through foreign key constraints */
-typedef std::deque<const char*, ut_allocator<const char*> >	dict_names_t;
-
-
 /*************************************************************//**
 Set foreign key options
 @return true if successfully set */
@@ -998,9 +993,5 @@ dict_load_foreigns(
 						to use table->col_names */
 	bool			check_charsets,	/*!< in: whether to check
 						charset compatibility */
-	dict_err_ignore_t	ignore_err,	/*!< in: error to be ignored */
-	dict_names_t&		fk_tables)	/*!< out: stack of table names
-						which must be loaded
-						subsequently to load all the
-						foreign key constraints. */
+	dict_err_ignore_t	ignore_err)	/*!< in: error to be ignored */
 	MY_ATTRIBUTE((warn_unused_result));

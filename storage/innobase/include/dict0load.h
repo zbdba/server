@@ -34,11 +34,6 @@ Created 4/24/1996 Heikki Tuuri
 #include "mem0mem.h"
 #include "btr0types.h"
 
-#include <deque>
-
-/** A stack of table names related through foreign key constraints */
-typedef std::deque<const char*, ut_allocator<const char*> >	dict_names_t;
-
 /** enum that defines all system table IDs. @see SYSTEM_TABLE_NAME[] */
 enum dict_system_id_t {
 	SYS_TABLES = 0,
