@@ -3969,7 +3969,8 @@ mysql_prepare_create_table(THD *thd, HA_CREATE_INFO *create_info,
           if (!fk_info->foreign_id.str)
             fk_info->foreign_id= make_unique_key_name(thd, table_name,
                                                       key_names, true);
-          foreign_keys.push_back(fk_info);
+          if (foreign_keys.push_back(fk_info))
+            DBUG_RETURN(TRUE);
           if (!key_names.insert(fk_info->foreign_id))
             DBUG_RETURN(TRUE);				// Out of memory
         }
@@ -8415,7 +8416,6 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
   List_iterator<Key> key_it(alter_info->key_list);
   List_iterator<Create_field> find_it(new_create_list);
   List_iterator<Create_field> field_it(new_create_list);
-  List_iterator<FK_info> fk_it(table->s->foreign_keys);
   List<Key_part_spec> key_parts;
   List<Virtual_column_info> new_constraint_list;
   uint db_create_options= (table->s->db_create_options
@@ -8849,9 +8849,8 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
   /*
     Collect all foreign keys which isn't in drop list.
   */
-  while (FK_info *fk_ptr= fk_it++)
+  for (const FK_info &fk: table->s->foreign_keys)
   {
-    const FK_info &fk= *fk_ptr;
     Foreign_key *key;
     Alter_drop *drop;
     DBUG_ASSERT(fk.foreign_id.str);
@@ -8888,7 +8887,6 @@ mysql_prepare_alter_table(THD *thd, TABLE *table,
       }
       alter_info->tmp_drop_list.push_back(drop); // FIXME: remove in MDEV-21052
       drop_it.remove();
-      fk_it.remove();
       while ((drop= drop_it++))
       {
         if (drop->type == Alter_drop::FOREIGN_KEY &&

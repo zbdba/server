@@ -21626,7 +21626,7 @@ dict_load_foreigns(
 	const char*	      column_names[MAX_NUM_FK_COLUMNS];
 	const char*	      ref_column_names[MAX_NUM_FK_COLUMNS];
 	ut_ad(table);
-	if (!share) {
+	if (!share) { // FIXME: remove
 		LEX_CSTRING db;
 		LEX_CSTRING table_name;
 		char	db_buf[NAME_LEN + 1];

@@ -9382,7 +9382,8 @@ dberr_t
 innobase_update_foreign_cache(
 /*==========================*/
 	ha_innobase_inplace_ctx*	ctx,
-	THD*				user_thd)
+	THD*				user_thd,
+	TABLE*				altered_table)
 {
 	dict_table_t*	user_table;
 	dberr_t		err = DB_SUCCESS;
@@ -9424,7 +9425,7 @@ innobase_update_foreign_cache(
 	dictionary cache (work around the lack of WL#6049). */
 	dict_names_t	fk_tables;
 
-	err = dict_load_foreigns(user_table, NULL,
+	err = dict_load_foreigns(user_table, altered_table->s,
 				 ctx->col_names, true,
 				 DICT_ERR_IGNORE_NONE,
 				 fk_tables);
@@ -9435,7 +9436,7 @@ innobase_update_foreign_cache(
 		/* It is possible there are existing foreign key are
 		loaded with "foreign_key checks" off,
 		so let's retry the loading with charset_check is off */
-		err = dict_load_foreigns(user_table, NULL,
+		err = dict_load_foreigns(user_table, altered_table->s,
 					 ctx->col_names, false,
 					 DICT_ERR_IGNORE_NONE,
 					 fk_tables);
@@ -10844,7 +10845,7 @@ ha_innobase::commit_inplace_alter_table(
 			DBUG_PRINT("to_be_dropped",
 				   ("table: %s", ctx->old_table->name.m_name));
 
-			if (innobase_update_foreign_cache(ctx, m_user_thd)
+			if (innobase_update_foreign_cache(ctx, m_user_thd, altered_table)
 			    != DB_SUCCESS
 			    && m_prebuilt->trx->check_foreigns) {
 foreign_fail:
@@ -10857,7 +10858,7 @@ foreign_fail:
 			}
 		} else {
 			bool fk_fail = innobase_update_foreign_cache(
-				ctx, m_user_thd) != DB_SUCCESS;
+				ctx, m_user_thd, altered_table) != DB_SUCCESS;
 
 			if (!commit_cache_norebuild(ha_alter_info, ctx,
 						    altered_table, table,
