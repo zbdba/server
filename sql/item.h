@@ -6046,6 +6046,7 @@ protected:
     Type_std_attributes::set(item);
     name= item->name;
     set_handler(item->type_handler());
+    in_rollup= i->in_rollup;
   }
 
 public:
