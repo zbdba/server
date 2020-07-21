@@ -161,11 +161,10 @@ CREATE TABLE t3 (a INT PRIMARY KEY,
 CONSTRAINT t2_ibfk_1 FOREIGN KEY (a) REFERENCES t1(a)) ENGINE=InnoDB;
 CREATE TABLE best.t2 (a INT PRIMARY KEY, b TEXT, FULLTEXT INDEX(b),
 FOREIGN KEY t2_ibfk_1 (a) REFERENCES test.t1(a)) ENGINE=InnoDB;
---replace_regex /Table '.*t2'/Table 't2'/
---error ER_TABLE_EXISTS_ERROR
 RENAME TABLE best.t2 TO test.t2;
-SHOW CREATE TABLE best.t2;
+SHOW CREATE TABLE test.t2;
 DROP DATABASE best;
+DROP TABLE t2;
 
 --echo #
 --echo # MDEV-17541 KILL QUERY during lock wait in FOREIGN KEY check hangs

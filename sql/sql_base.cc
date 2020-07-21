@@ -2038,7 +2038,9 @@ retry_share:
           if (0 != cmp_table(rk.foreign_db, tbl->db) ||
               0 != cmp_table(rk.foreign_table, tbl->table_name))
             continue;
-          ref_found= true;
+          // NB: rk can be not resolved (see GTS_FK_SHALLOW_HINTS)
+          if (rk.foreign_fields.elements > 0)
+            ref_found= true;
           break;
         }
 

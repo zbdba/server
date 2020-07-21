@@ -12697,10 +12697,13 @@ int create_table_info_t::create_table(bool create_fk)
 		? create_foreign_keys() : DB_SUCCESS;
 
 	if (err == DB_SUCCESS) {
+		bool check_foreigns = !thd_test_options(m_thd, OPTION_NO_FOREIGN_KEY_CHECKS);
 		/* Check that also referencing constraints are ok */
 		// FIXME: is it needed here? I guess not.
 		err = dict_load_foreigns(m_table, m_form->s, NULL, true,
-					 DICT_ERR_IGNORE_NONE);
+					 check_foreigns
+						? DICT_ERR_IGNORE_NONE
+						: DICT_ERR_IGNORE_FK_NOKEY);
 	}
 
 	switch (err) {
@@ -21753,6 +21756,10 @@ dict_load_foreigns(
 			{
 				// not possible for DML (foreign table is written)
 				continue;
+			}
+			err = dict_load_foreigns(for_table, NULL, NULL, check_charsets, ignore_err);
+			if (err != DB_SUCCESS) {
+				return err;
 			}
 			for (dict_foreign_t *fk: for_table->foreign_set)
 			{
