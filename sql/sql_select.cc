@@ -12225,6 +12225,7 @@ void JOIN::cleanup(bool full)
                               tab->table->s->table_name.str,
                               tab->table->alias.c_ptr()));
           tab->table->file->ha_index_or_rnd_end();
+	  free_cache(&tab->read_record);
         }
       }
     }

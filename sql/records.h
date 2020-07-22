@@ -77,6 +77,7 @@ bool init_read_record(READ_RECORD *info, THD *thd, TABLE *reg_form,
 bool init_read_record_idx(READ_RECORD *info, THD *thd, TABLE *table,
                           bool print_error, uint idx, bool reverse);
 void end_read_record(READ_RECORD *info);
+void free_cache(READ_RECORD *info);
 
 void rr_unlock_row(st_join_table *tab);
 
