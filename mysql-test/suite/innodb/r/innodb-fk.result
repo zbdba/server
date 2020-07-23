@@ -30,7 +30,7 @@ drop table t1;
 create table t1 (f1 int primary key) engine=innodb;
 # restart
 delete from t1 where f1 = 29;
-ERROR 23000: Cannot delete or update a parent row: a foreign key constraint fails (`test`.`fk_29`, CONSTRAINT `pc29` FOREIGN KEY (`f1`) REFERENCES `t1` (`f1`))
+ERROR 23000: Cannot delete or update a parent row: a foreign key constraint fails (`test`.`fk_29`, CONSTRAINT `pc29` FOREIGN KEY (`f1`) REFERENCES `t1` (`f1`) ON DELETE NO ACTION ON UPDATE NO ACTION)
 select * from fk_29;
 f1
 29

@@ -367,14 +367,14 @@ update t1 set data=10 where pk+1>10;
 show status like '%opened_tab%';
 Variable_name	Value
 Opened_table_definitions	5
-Opened_tables	4
+Opened_tables	5
 flush tables;
 flush status;
 update t2 set t1_pk=11 where t1_pk+1>10;
 show status like '%opened_tab%';
 Variable_name	Value
-Opened_table_definitions	4
-Opened_tables	4
+Opened_table_definitions	5
+Opened_tables	5
 flush tables;
 flush status;
 lock tables t1 write;
@@ -401,7 +401,7 @@ foo()
 show status like '%opened_tab%';
 Variable_name	Value
 Opened_table_definitions	6
-Opened_tables	5
+Opened_tables	6
 drop function foo;
 drop table t2, t1;
 # Start of 10.2 tests
