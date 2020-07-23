@@ -140,8 +140,8 @@ public:
                          CHARSET_INFO *fromcs,
                          my_repertoire_t from_repertoire,
                          CHARSET_INFO *tocs)=0;
-  virtual bool store(float from, uint32 decimals, String *buffer)=0;
-  virtual bool store(double from, uint32 decimals, String *buffer)=0;
+  virtual bool store_float(float from, uint32 decimals)=0;
+  virtual bool store_double(double from, uint32 decimals)=0;
   virtual bool store(MYSQL_TIME *time, int decimals)=0;
   virtual bool store_date(MYSQL_TIME *time)=0;
   virtual bool store_time(MYSQL_TIME *time, int decimals)=0;
@@ -206,6 +206,7 @@ public:
 
 class Protocol_text :public Protocol
 {
+  StringBuffer<FLOATING_POINT_BUFFER> buffer;
 public:
   Protocol_text(THD *thd_arg, ulong prealloc= 0)
    :Protocol(thd_arg)
@@ -227,8 +228,8 @@ public:
   virtual bool store(MYSQL_TIME *time, int decimals);
   virtual bool store_date(MYSQL_TIME *time);
   virtual bool store_time(MYSQL_TIME *time, int decimals);
-  virtual bool store(float nr, uint32 decimals, String *buffer);
-  virtual bool store(double from, uint32 decimals, String *buffer);
+  virtual bool store_float(float nr, uint32 decimals);
+  virtual bool store_double(double from, uint32 decimals);
   virtual bool store(Field *field);
 
   virtual bool send_out_parameters(List<Item_param> *sp_params);
@@ -273,8 +274,8 @@ public:
   virtual bool store(MYSQL_TIME *time, int decimals);
   virtual bool store_date(MYSQL_TIME *time);
   virtual bool store_time(MYSQL_TIME *time, int decimals);
-  virtual bool store(float nr, uint32 decimals, String *buffer);
-  virtual bool store(double from, uint32 decimals, String *buffer);
+  virtual bool store_float(float nr, uint32 decimals);
+  virtual bool store_double(double from, uint32 decimals);
   virtual bool store(Field *field);
 
   virtual bool send_out_parameters(List<Item_param> *sp_params);
@@ -324,8 +325,8 @@ public:
   bool store(MYSQL_TIME *, int) { return false; }
   bool store_date(MYSQL_TIME *) { return false; }
   bool store_time(MYSQL_TIME *, int) { return false; }
-  bool store(float, uint32, String *) { return false; }
-  bool store(double, uint32, String *) { return false; }
+  bool store_float(float, uint32) { return false; }
+  bool store_double(double, uint32) { return false; }
   bool store(Field *) { return false; }
 
 };

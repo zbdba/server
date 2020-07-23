@@ -1292,25 +1292,25 @@ bool Protocol_text::store_decimal(const my_decimal *d)
 }
 
 
-bool Protocol_text::store(float from, uint32 decimals, String *buffer)
+bool Protocol_text::store_float(float from, uint32 decimals)
 {
 #ifndef DBUG_OFF
   DBUG_ASSERT(valid_handler(field_pos, PROTOCOL_SEND_FLOAT));
   field_pos++;
 #endif
-  Float(from).to_string(buffer, decimals);
-  return net_store_data((uchar*) buffer->ptr(), buffer->length());
+  Float(from).to_string(&buffer, decimals);
+  return net_store_data((uchar*) buffer.ptr(), buffer.length());
 }
 
 
-bool Protocol_text::store(double from, uint32 decimals, String *buffer)
+bool Protocol_text::store_double(double from, uint32 decimals)
 {
 #ifndef DBUG_OFF
   DBUG_ASSERT(valid_handler(field_pos, PROTOCOL_SEND_DOUBLE));
   field_pos++;
 #endif
-  buffer->set_real(from, decimals, thd->charset());
-  return net_store_data((uchar*) buffer->ptr(), buffer->length());
+  buffer.set_real(from, decimals, thd->charset());
+  return net_store_data((uchar*) buffer.ptr(), buffer.length());
 }
 
 
@@ -1529,7 +1529,7 @@ bool Protocol_binary::store_decimal(const my_decimal *d)
                    thd->variables.character_set_results);
 }
 
-bool Protocol_binary::store(float from, uint32 decimals, String *buffer)
+bool Protocol_binary::store_float(float from, uint32 decimals)
 {
   field_pos++;
   char *to= packet->prep_append(4, PACKET_BUFFER_EXTRA_ALLOC);
@@ -1540,7 +1540,7 @@ bool Protocol_binary::store(float from, uint32 decimals, String *buffer)
 }
 
 
-bool Protocol_binary::store(double from, uint32 decimals, String *buffer)
+bool Protocol_binary::store_double(double from, uint32 decimals)
 {
   field_pos++;
   char *to= packet->prep_append(8, PACKET_BUFFER_EXTRA_ALLOC);
