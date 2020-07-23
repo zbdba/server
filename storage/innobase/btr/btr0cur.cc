@@ -438,9 +438,12 @@ btr_cur_optimistic_latch_leaves(
 		rw_lock_s_lock(&block->lock);
 		if (block->modify_clock != modify_clock) {
 			rw_lock_s_unlock(&block->lock);
-
-			goto unpin_failed;
+unpin_failed:
+			/* unpin the block */
+			buf_block_buf_fix_dec(block);
+			return(false);
 		}
+
 		left_page_no = btr_page_get_prev(
 			buf_block_get_frame(block));
 		rw_lock_s_unlock(&block->lock);
@@ -449,11 +452,28 @@ btr_cur_optimistic_latch_leaves(
 			const page_id_t	page_id(
 				dict_index_get_space(cursor->index),
 				left_page_no);
+			ulint	curr_page_no = block->page.id.page_no();
+			dberr_t	err = DB_SUCCESS;
 
-			cursor->left_block = btr_block_get(
+			cursor->left_block = buf_page_get_gen(
 				page_id,
 				dict_table_page_size(cursor->index->table),
-				mode, cursor->index, mtr);
+				mode, NULL, BUF_GET_POSSIBLY_FREED,
+				__FILE__, __LINE__, mtr, &err);
+
+			if (err == DB_DECRYPTION_FAILED) {
+				cursor->index->table->file_unreadable = true;
+			}
+
+			if (UNIV_UNLIKELY(btr_page_get_next(
+						cursor->left_block->frame)
+					  != curr_page_no)) {
+				/* release the left block */
+				btr_leaf_page_release(
+					cursor->left_block, mode, mtr);
+				cursor->left_block = NULL;
+				goto unpin_failed;
+			}
 		} else {
 			cursor->left_block = NULL;
 		}
@@ -476,11 +496,8 @@ btr_cur_optimistic_latch_leaves(
 			btr_leaf_page_release(cursor->left_block,
 					      mode, mtr);
 		}
-unpin_failed:
-		/* unpin the block */
-		buf_block_buf_fix_dec(block);
-		return(false);
 
+		goto unpin_failed;
 	default:
 		ut_error;
 		return(false);
