@@ -217,17 +217,28 @@ static struct
 #include "sql_plugin_services.ic"
 
 /*
-  A mutex LOCK_plugin must be acquired before accessing the
-  following variables/structures.
-  We are always manipulating ref count, so a rwlock here is unneccessary.
+  A mutex LOCK_plugin must be acquired when we change the
+  new_plugins_state content and when we swap the global_plugins_state
+  and the new_plugins_state.
 */
 mysql_mutex_t LOCK_plugin;
+struct st_plugins_state
+{
+  DYNAMIC_ARRAY m_array;
+  HASH m_hash[MYSQL_MAX_PLUGIN_TYPE_NUM];
+#ifndef DBUG_OOF
+  uint m_ref_counter;
+#endif
+};
+
 static DYNAMIC_ARRAY plugin_dl_array;
-static DYNAMIC_ARRAY plugin_array;
-static HASH plugin_hash[MYSQL_MAX_PLUGIN_TYPE_NUM];
 static MEM_ROOT plugin_mem_root;
 static bool reap_needed= false;
 volatile int global_plugin_version= 1;
+
+static st_plugins_state plugins_states[2];
+st_plugins_state *global_plugins_state= plugins_states;
+static st_plugins_state *new_plugins_state= plugins_states + 1;
 
 static bool initialized= 0;
 ulong dlopen_count;
@@ -324,7 +335,6 @@ static void cleanup_variables(struct system_variables *vars);
 static void plugin_vars_free_values(sys_var *vars);
 static void restore_ptr_backup(uint n, st_ptr_backup *backup);
 static void intern_plugin_unlock(LEX *lex, plugin_ref plugin);
-static void reap_plugins(void);
 
 bool plugin_is_forced(struct st_plugin_int *p)
 {
@@ -722,7 +732,6 @@ static st_plugin_dl *plugin_dl_add(const LEX_CSTRING *dl, myf MyFlags)
   DBUG_ENTER("plugin_dl_add");
   DBUG_PRINT("enter", ("dl->str: '%s', dl->length: %d",
                        dl->str, (int) dl->length));
-  mysql_mutex_assert_owner(&LOCK_plugin);
   plugin_dir_len= strlen(opt_plugin_dir);
   /*
     Ensure that the dll doesn't have a path.
@@ -871,7 +880,8 @@ static void plugin_dl_del(struct st_plugin_dl *plugin_dl)
 }
 
 
-static struct st_plugin_int *plugin_find_internal(const LEX_CSTRING *name,
+static struct st_plugin_int *plugin_find_internal(st_plugins_state *st,
+                                                  const LEX_CSTRING *name,
                                                   int type)
 {
   uint i;
@@ -879,56 +889,58 @@ static struct st_plugin_int *plugin_find_internal(const LEX_CSTRING *name,
   if (! initialized)
     DBUG_RETURN(0);
 
-  mysql_mutex_assert_owner(&LOCK_plugin);
-
   if (type == MYSQL_ANY_PLUGIN)
   {
     for (i= 0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
     {
       struct st_plugin_int *plugin= (st_plugin_int *)
-        my_hash_search(&plugin_hash[i], (const uchar *)name->str, name->length);
+        my_hash_search(&st->m_hash[i], (const uchar *)name->str, name->length);
       if (plugin)
         DBUG_RETURN(plugin);
     }
   }
   else
     DBUG_RETURN((st_plugin_int *)
-        my_hash_search(&plugin_hash[type], (const uchar *)name->str,
+        my_hash_search(&st->m_hash[type], (const uchar *)name->str,
                        name->length));
   DBUG_RETURN(0);
 }
 
 
-static SHOW_COMP_OPTION plugin_status(const LEX_CSTRING *name, int type)
+static struct st_plugin_int *plugin_find_internal_gl(const LEX_CSTRING *name,
+                                                     int type)
+{
+  mysql_mutex_assert_owner(&LOCK_plugin);
+  return plugin_find_internal(global_plugins_state, name, type);
+}
+
+
+
+static SHOW_COMP_OPTION plugin_status(st_plugins_state *st,
+                                      const LEX_CSTRING *name, int type)
 {
   SHOW_COMP_OPTION rc= SHOW_OPTION_NO;
   struct st_plugin_int *plugin;
   DBUG_ENTER("plugin_is_ready");
-  mysql_mutex_lock(&LOCK_plugin);
-  if ((plugin= plugin_find_internal(name, type)))
+  if ((plugin= plugin_find_internal(st, name, type)))
   {
     rc= SHOW_OPTION_DISABLED;
     if (plugin->state == PLUGIN_IS_READY)
       rc= SHOW_OPTION_YES;
   }
-  mysql_mutex_unlock(&LOCK_plugin);
   DBUG_RETURN(rc);
 }
 
 
-bool plugin_is_ready(const LEX_CSTRING *name, int type)
+bool plugin_is_ready(THD *thd, const LEX_CSTRING *name, int type)
 {
-  bool rc= FALSE;
-  if (plugin_status(name, type) == SHOW_OPTION_YES)
-    rc= TRUE;
-  return rc;
+  return plugin_status(thd->plugins_state, name, type) == SHOW_OPTION_YES;
 }
 
 
-SHOW_COMP_OPTION plugin_status(const char *name, size_t len, int type)
+bool plugin_is_ready_gl(const LEX_CSTRING *name, int type)
 {
-  LEX_CSTRING plugin_name= { name, len };
-  return plugin_status(&plugin_name, type);
+  return plugin_status(global_plugins_state, name, type) == SHOW_OPTION_YES;
 }
 
 
@@ -943,8 +955,6 @@ static plugin_ref intern_plugin_lock(LEX *lex, plugin_ref rc,
 {
   st_plugin_int *pi= plugin_ref_to_int(rc);
   DBUG_ENTER("intern_plugin_lock");
-
-  mysql_mutex_assert_owner(&LOCK_plugin);
 
   if (pi->state & state_mask)
   {
@@ -1019,10 +1029,8 @@ plugin_ref plugin_lock(THD *thd, plugin_ref ptr)
     DBUG_RETURN(ptr);
   }
 #endif
-  mysql_mutex_lock(&LOCK_plugin);
   plugin_ref_to_int(ptr)->locks_total++;
   rc= intern_plugin_lock(lex, ptr);
-  mysql_mutex_unlock(&LOCK_plugin);
   DBUG_RETURN(rc);
 }
 
@@ -1037,16 +1045,14 @@ plugin_ref plugin_lock(THD *thd, plugin_ref ptr)
   Otherwise, when passing a NULL THD, the caller must arrange that plugin
   unlock happens later.
 */
-plugin_ref plugin_lock_by_name(THD *thd, const LEX_CSTRING *name, int type)
+plugin_ref plugin_lock_by_name(st_plugins_state *st, LEX *lex,
+                               const LEX_CSTRING *name, int type)
 {
-  LEX *lex= thd ? thd->lex : 0;
   plugin_ref rc= NULL;
   st_plugin_int *plugin;
   DBUG_ENTER("plugin_lock_by_name");
-  mysql_mutex_lock(&LOCK_plugin);
-  if ((plugin= plugin_find_internal(name, type)))
+  if ((plugin= plugin_find_internal(st, name, type)))
     rc= intern_plugin_lock(lex, plugin_int_to_ref(plugin));
-  mysql_mutex_unlock(&LOCK_plugin);
   DBUG_RETURN(rc);
 }
 
@@ -1056,18 +1062,20 @@ static st_plugin_int *plugin_insert_or_reuse(struct st_plugin_int *plugin)
   uint i;
   struct st_plugin_int *tmp;
   DBUG_ENTER("plugin_insert_or_reuse");
-  for (i= 0; i < plugin_array.elements; i++)
+  for (i= 0; i < new_plugins_state->m_array.elements; i++)
   {
-    tmp= *dynamic_element(&plugin_array, i, struct st_plugin_int **);
+    tmp= *dynamic_element(&new_plugins_state->m_array, i,
+                          struct st_plugin_int **);
     if (tmp->state == PLUGIN_IS_FREED)
     {
       memcpy(tmp, plugin, sizeof(struct st_plugin_int));
       DBUG_RETURN(tmp);
     }
   }
-  if (insert_dynamic(&plugin_array, (uchar*)&plugin))
+  if (insert_dynamic(&new_plugins_state->m_array, (uchar*)&plugin))
     DBUG_RETURN(0);
-  tmp= *dynamic_element(&plugin_array, plugin_array.elements - 1,
+  tmp= *dynamic_element(&new_plugins_state->m_array,
+                        new_plugins_state->m_array.elements - 1,
                         struct st_plugin_int **)=
        (struct st_plugin_int *) memdup_root(&plugin_mem_root, (uchar*)plugin,
                                             sizeof(struct st_plugin_int));
@@ -1088,7 +1096,8 @@ static enum install_status plugin_add(MEM_ROOT *tmp_root, bool if_not_exists,
   DBUG_ENTER("plugin_add");
   DBUG_PRINT("enter", ("name: %s  dl: %s", name->str, dl->str));
 
-  if (name->str && plugin_find_internal(name, MYSQL_ANY_PLUGIN))
+  if (name->str && plugin_find_internal(new_plugins_state,
+                                        name, MYSQL_ANY_PLUGIN))
   {
     if (if_not_exists)
       MyFlags|= ME_NOTE;
@@ -1120,7 +1129,8 @@ static enum install_status plugin_add(MEM_ROOT *tmp_root, bool if_not_exists,
       continue; // plugin name doesn't match
 
     if (!name->str &&
-        (maybe_dupe= plugin_find_internal(&tmp.name, MYSQL_ANY_PLUGIN)))
+        (maybe_dupe= plugin_find_internal(new_plugins_state,
+                                          &tmp.name, MYSQL_ANY_PLUGIN)))
     {
       if (plugin->name != maybe_dupe->plugin->name)
       {
@@ -1172,7 +1182,8 @@ static enum install_status plugin_add(MEM_ROOT *tmp_root, bool if_not_exists,
 
     if (!(tmp_plugin_ptr= plugin_insert_or_reuse(&tmp)))
       goto err;
-    if (my_hash_insert(&plugin_hash[plugin->type], (uchar*)tmp_plugin_ptr))
+    if (my_hash_insert(&new_plugins_state->m_hash[plugin->type],
+                       (uchar*)tmp_plugin_ptr))
       tmp_plugin_ptr->state= PLUGIN_IS_FREED;
     init_alloc_root(&tmp_plugin_ptr->mem_root, "plugin", 4096, 4096, MYF(0));
 
@@ -1210,13 +1221,6 @@ static void plugin_variables_deinit(struct st_plugin_int *plugin)
 
 static void plugin_deinitialize(struct st_plugin_int *plugin, bool ref_check)
 {
-  /*
-    we don't want to hold the LOCK_plugin mutex as it may cause
-    deinitialization to deadlock if plugins have worker threads
-    with plugin locks
-  */
-  mysql_mutex_assert_not_owner(&LOCK_plugin);
-
   if (plugin->plugin->status_vars)
   {
     /*
@@ -1270,7 +1274,8 @@ static void plugin_del(struct st_plugin_int *plugin)
   restore_ptr_backup(plugin->nbackups, plugin->ptr_backup);
   if (plugin->plugin_dl)
   {
-    my_hash_delete(&plugin_hash[plugin->plugin->type], (uchar*)plugin);
+    my_hash_delete(&new_plugins_state->m_hash[plugin->plugin->type],
+                   (uchar*)plugin);
     plugin_dl_del(plugin->plugin_dl);
     plugin->state= PLUGIN_IS_FREED;
     free_root(&plugin->mem_root, MYF(0));
@@ -1280,57 +1285,12 @@ static void plugin_del(struct st_plugin_int *plugin)
   DBUG_VOID_RETURN;
 }
 
-static void reap_plugins(void)
-{
-  uint count;
-  struct st_plugin_int *plugin, **reap, **list;
-
-  mysql_mutex_assert_owner(&LOCK_plugin);
-
-  if (!reap_needed)
-    return;
-
-  reap_needed= false;
-  count= plugin_array.elements;
-  reap= (struct st_plugin_int **)my_alloca(sizeof(plugin)*(count+1));
-  *(reap++)= NULL;
-
-  for (uint i=0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
-  {
-    HASH *hash= plugin_hash + plugin_type_initialization_order[i];
-    for (uint j= 0; j < hash->records; j++)
-    {
-      plugin= (struct st_plugin_int *) my_hash_element(hash, j);
-      if (plugin->state == PLUGIN_IS_DELETED && !plugin->ref_count)
-      {
-        /* change the status flag to prevent reaping by another thread */
-        plugin->state= PLUGIN_IS_DYING;
-        *(reap++)= plugin;
-      }
-    }
-  }
-
-  mysql_mutex_unlock(&LOCK_plugin);
-
-  list= reap;
-  while ((plugin= *(--list)))
-      plugin_deinitialize(plugin, true);
-
-  mysql_mutex_lock(&LOCK_plugin);
-
-  while ((plugin= *(--reap)))
-    plugin_del(plugin);
-
-  my_afree(reap);
-}
 
 static void intern_plugin_unlock(LEX *lex, plugin_ref plugin)
 {
   int i;
   st_plugin_int *pi;
   DBUG_ENTER("intern_plugin_unlock");
-
-  mysql_mutex_assert_owner(&LOCK_plugin);
 
   if (!plugin)
     DBUG_VOID_RETURN;
@@ -1384,10 +1344,7 @@ void plugin_unlock(THD *thd, plugin_ref plugin)
   if (!plugin_dlib(plugin))
     DBUG_VOID_RETURN;
 #endif
-  mysql_mutex_lock(&LOCK_plugin);
   intern_plugin_unlock(lex, plugin);
-  reap_plugins();
-  mysql_mutex_unlock(&LOCK_plugin);
   DBUG_VOID_RETURN;
 }
 
@@ -1400,11 +1357,8 @@ void plugin_unlock_list(THD *thd, plugin_ref *list, uint count)
     DBUG_VOID_RETURN;
 
   DBUG_ASSERT(list);
-  mysql_mutex_lock(&LOCK_plugin);
   while (count--)
     intern_plugin_unlock(lex, *list++);
-  reap_plugins();
-  mysql_mutex_unlock(&LOCK_plugin);
   DBUG_VOID_RETURN;
 }
 
@@ -1415,11 +1369,16 @@ static int plugin_initialize(MEM_ROOT *tmp_root, struct st_plugin_int *plugin,
   int ret= 1;
   DBUG_ENTER("plugin_initialize");
 
-  mysql_mutex_assert_owner(&LOCK_plugin);
+#ifndef DBUG_OFF
+  /*
+    Normally the function should be protected with LOCK_plugin.
+    Though we do an exception for the plugin_init.
+  */
+  if (global_plugins_state->m_array.elements > 0)
+    mysql_mutex_assert_owner(&LOCK_plugin);
+#endif /* not DBUG_OFF */
   uint state= plugin->state;
   DBUG_ASSERT(state == PLUGIN_IS_UNINITIALIZED);
-
-  mysql_mutex_unlock(&LOCK_plugin);
 
   mysql_prlock_wrlock(&LOCK_system_variables_hash);
   if (test_plugin_options(tmp_root, plugin, argc, argv))
@@ -1479,7 +1438,6 @@ err:
   if (ret)
     plugin_variables_deinit(plugin);
 
-  mysql_mutex_lock(&LOCK_plugin);
   plugin->state= state;
 
   DBUG_RETURN(ret);
@@ -1542,6 +1500,37 @@ static void init_plugin_psi_keys(void)
 }
 #endif /* HAVE_PSI_INTERFACE */
 
+
+static bool copy_plugins_state(st_plugins_state *dest, st_plugins_state *src)
+{
+  uint i;
+
+  reset_dynamic(&dest->m_array);
+  for (i= 0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
+    my_hash_reset(&dest->m_hash[i]);
+
+  for (i= 0; i < src->m_array.elements; i++)
+  {
+    struct st_plugin_int *ptr;
+    ptr= *dynamic_element(&src->m_array, i, struct st_plugin_int **);
+    if (insert_dynamic(&dest->m_array, (uchar *) ptr) ||
+        my_hash_insert(&dest->m_hash[ptr->plugin->type],
+                       (uchar*) ptr))
+      goto err;
+  }
+
+  return false;
+err:
+  return true;
+}
+
+
+static void set_new_global_plugins_state()
+{
+  swap_variables(st_plugins_state *, global_plugins_state, new_plugins_state);
+}
+
+
 /*
   The logic is that we first load and initialize all compiled in plugins.
   From there we load up the dynamic types (assuming we have not been told to
@@ -1579,16 +1568,22 @@ int plugin_init(int *argc, char **argv, int flags)
     Big enough to avoid many mallocs even in future
   */
   if (my_init_dynamic_array(&plugin_dl_array,
-                            sizeof(struct st_plugin_dl *), 16, 16, MYF(0)) ||
-      my_init_dynamic_array(&plugin_array,
-                            sizeof(struct st_plugin_int *), 80, 32, MYF(0)))
+                            sizeof(struct st_plugin_dl *), 16, 16, MYF(0)))
     goto err;
 
-  for (i= 0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
+  for (int ps=0; ps < 2; ps++)
   {
-    if (my_hash_init(&plugin_hash[i], system_charset_info, 32, 0, 0,
-                     get_plugin_hash_key, NULL, HASH_UNIQUE))
+    struct st_plugins_state *state= plugins_states + ps;
+    if (my_init_dynamic_array(&state->m_array,
+                              sizeof(struct st_plugin_int *), 80, 32, MYF(0)))
       goto err;
+
+    for (i= 0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
+    {
+      if (my_hash_init(state->m_hash+i, system_charset_info,
+            32, 0, 0, get_plugin_hash_key, NULL, HASH_UNIQUE))
+        goto err;
+    }
   }
 
   /* prepare debug_sync service */
@@ -1597,8 +1592,6 @@ int plugin_init(int *argc, char **argv, int flags)
 
   /* prepare encryption_keys service */
   finalize_encryption_plugin(0);
-
-  mysql_mutex_lock(&LOCK_plugin);
 
   initialized= 1;
 
@@ -1644,7 +1637,7 @@ int plugin_init(int *argc, char **argv, int flags)
       free_root(&tmp_root, MYF(MY_MARK_BLOCKS_FREE));
       tmp.state= PLUGIN_IS_UNINITIALIZED;
       if (register_builtin(plugin, &tmp, &plugin_ptr))
-        goto err_unlock;
+        goto err;
     }
   }
 
@@ -1652,14 +1645,15 @@ int plugin_init(int *argc, char **argv, int flags)
     First, we initialize only MyISAM - that should almost always succeed
     (almost always, because plugins can be loaded outside of the server, too).
   */
-  plugin_ptr= plugin_find_internal(&MyISAM, MYSQL_STORAGE_ENGINE_PLUGIN);
+  plugin_ptr= plugin_find_internal(new_plugins_state, &MyISAM,
+                                   MYSQL_STORAGE_ENGINE_PLUGIN);
   DBUG_ASSERT(plugin_ptr || !mysql_mandatory_plugins[0]);
   if (plugin_ptr)
   {
     DBUG_ASSERT(plugin_ptr->load_option == PLUGIN_FORCE);
 
     if (plugin_initialize(&tmp_root, plugin_ptr, argc, argv, false))
-      goto err_unlock;
+      goto err;
 
     /*
       set the global default storage engine variable so that it will
@@ -1670,7 +1664,6 @@ int plugin_init(int *argc, char **argv, int flags)
     DBUG_SLOW_ASSERT(plugin_ptr->ref_count == 1);
 
   }
-  mysql_mutex_unlock(&LOCK_plugin);
 
   /* Register (not initialize!) all dynamic plugins */
   if (!(flags & PLUGIN_INIT_SKIP_DYNAMIC_LOADING))
@@ -1703,15 +1696,16 @@ int plugin_init(int *argc, char **argv, int flags)
     Now we initialize all remaining plugins
   */
 
-  mysql_mutex_lock(&LOCK_plugin);
-  reap= (st_plugin_int **) my_alloca((plugin_array.elements+1) * sizeof(void*));
+  reap= (st_plugin_int **) my_alloca(
+      (new_plugins_state->m_array.elements+1) * sizeof(void*));
   *(reap++)= NULL;
 
   for(;;)
   {
     for (i=0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
     {
-      HASH *hash= plugin_hash + plugin_type_initialization_order[i];
+      HASH *hash= new_plugins_state->m_hash +
+                  plugin_type_initialization_order[i];
       for (uint idx= 0; idx < hash->records; idx++)
       {
         plugin_ptr= (struct st_plugin_int *) my_hash_element(hash, idx);
@@ -1731,10 +1725,8 @@ int plugin_init(int *argc, char **argv, int flags)
     if (flags & PLUGIN_INIT_SKIP_PLUGIN_TABLE)
       break;
 
-    mysql_mutex_unlock(&LOCK_plugin);
     plugin_load(&tmp_root);
     flags|= PLUGIN_INIT_SKIP_PLUGIN_TABLE;
-    mysql_mutex_lock(&LOCK_plugin);
   }
 
   /*
@@ -1742,25 +1734,22 @@ int plugin_init(int *argc, char **argv, int flags)
   */
   while ((plugin_ptr= *(--reap)))
   {
-    mysql_mutex_unlock(&LOCK_plugin);
     if (plugin_is_forced(plugin_ptr))
       reaped_mandatory_plugin= TRUE;
     plugin_deinitialize(plugin_ptr, true);
-    mysql_mutex_lock(&LOCK_plugin);
     plugin_del(plugin_ptr);
   }
 
-  mysql_mutex_unlock(&LOCK_plugin);
   my_afree(reap);
   if (reaped_mandatory_plugin)
     goto err;
 
   free_root(&tmp_root, MYF(0));
+  
+  set_new_global_plugins_state();
 
   DBUG_RETURN(0);
 
-err_unlock:
-  mysql_mutex_unlock(&LOCK_plugin);
 err:
   free_root(&tmp_root, MYF(0));
   DBUG_RETURN(1);
@@ -1775,15 +1764,16 @@ static bool register_builtin(struct st_maria_plugin *plugin,
   tmp->ref_count= 0;
   tmp->plugin_dl= 0;
 
-  if (insert_dynamic(&plugin_array, (uchar*)&tmp))
+  if (insert_dynamic(&new_plugins_state->m_array, (uchar*)&tmp))
     DBUG_RETURN(1);
 
-  *ptr= *dynamic_element(&plugin_array, plugin_array.elements - 1,
+  *ptr= *dynamic_element(&new_plugins_state->m_array,
+                         new_plugins_state->m_array.elements - 1,
                          struct st_plugin_int **)=
         (struct st_plugin_int *) memdup_root(&plugin_mem_root, (uchar*)tmp,
                                              sizeof(struct st_plugin_int));
 
-  if (my_hash_insert(&plugin_hash[plugin->type],(uchar*) *ptr))
+  if (my_hash_insert(new_plugins_state->m_hash + plugin->type,(uchar*) *ptr))
     DBUG_RETURN(1);
 
   DBUG_RETURN(0);
@@ -1809,6 +1799,7 @@ static void plugin_load(MEM_ROOT *tmp_root)
   new_thd->thread_stack= (char*) &tables;
   new_thd->store_globals();
   new_thd->db= MYSQL_SCHEMA_NAME;
+  new_thd->plugins_state= new_plugins_state;
   bzero((char*) &new_thd->net, sizeof(new_thd->net));
   tables.init_one_table(&MYSQL_SCHEMA_NAME, &MYSQL_PLUGIN_NAME, 0, TL_READ);
   tables.open_strategy= TABLE_LIST::OPEN_NORMAL;
@@ -1855,10 +1846,8 @@ static void plugin_load(MEM_ROOT *tmp_root)
       environment, and it uses mysql_mutex_assert_owner(), so we lock
       the mutex here to satisfy the assert
     */
-    mysql_mutex_lock(&LOCK_plugin);
     plugin_add(tmp_root, false, &name, &dl, MYF(ME_ERROR_LOG));
     free_root(tmp_root, MYF(MY_MARK_BLOCKS_FREE));
-    mysql_mutex_unlock(&LOCK_plugin);
   }
   if (unlikely(error > 0))
     sql_print_error(ER_THD(new_thd, ER_GET_ERRNO), my_errno,
@@ -1908,7 +1897,6 @@ static bool plugin_load_list(MEM_ROOT *tmp_root, const char *list)
         }
 
         dl= name;
-        mysql_mutex_lock(&LOCK_plugin);
         free_root(tmp_root, MYF(MY_MARK_BLOCKS_FREE));
         name.str= 0; // load everything
         if (plugin_add(tmp_root, false, &name, &dl,
@@ -1918,12 +1906,10 @@ static bool plugin_load_list(MEM_ROOT *tmp_root, const char *list)
       else
       {
         free_root(tmp_root, MYF(MY_MARK_BLOCKS_FREE));
-        mysql_mutex_lock(&LOCK_plugin);
         if (plugin_add(tmp_root, false, &name, &dl,
                        MYF(ME_ERROR_LOG)) != INSTALL_GOOD)
           goto error;
       }
-      mysql_mutex_unlock(&LOCK_plugin);
       name.length= dl.length= 0;
       dl.str= NULL; name.str= p= buffer;
       str= &name;
@@ -1945,7 +1931,6 @@ static bool plugin_load_list(MEM_ROOT *tmp_root, const char *list)
   }
   DBUG_RETURN(FALSE);
 error:
-  mysql_mutex_unlock(&LOCK_plugin);
   if (name.str)
     sql_print_error("Couldn't load plugin '%s' from '%s'.",
                     name.str, dl.str);
@@ -1957,100 +1942,49 @@ error:
 
 void plugin_shutdown(void)
 {
-  uint i, count= plugin_array.elements;
-  struct st_plugin_int **plugins, *plugin;
+  uint i, count= global_plugins_state->m_array.elements;
+  struct st_plugin_int *plugin;
   struct st_plugin_dl **dl;
+
   DBUG_ENTER("plugin_shutdown");
 
   if (initialized)
   {
+    mysql_mutex_lock(&LOCK_plugin);
     if (opt_gtid_pos_auto_plugins)
     {
       free_engine_list(opt_gtid_pos_auto_plugins);
       opt_gtid_pos_auto_plugins= NULL;
     }
 
-    mysql_mutex_lock(&LOCK_plugin);
-
-    reap_needed= true;
-
-    /*
-      We want to shut down plugins in a reasonable order, this will
-      become important when we have plugins which depend upon each other.
-      Circular references cannot be reaped so they are forced afterwards.
-      TODO: Have an additional step here to notify all active plugins that
-      shutdown is requested to allow plugins to deinitialize in parallel.
-    */
-    while (reap_needed && (count= plugin_array.elements))
+    for (uint i=0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
     {
-      reap_plugins();
-      for (i= 0; i < count; i++)
+      HASH *hash= global_plugins_state->m_hash +
+                  plugin_type_initialization_order[i];
+      for (uint j= 0; j < hash->records; j++)
       {
-        plugin= *dynamic_element(&plugin_array, i, struct st_plugin_int **);
-        if (plugin->state == PLUGIN_IS_READY)
-        {
-          plugin->state= PLUGIN_IS_DELETED;
-          reap_needed= true;
-        }
-      }
-      if (!reap_needed)
-      {
-        /*
-          release any plugin references held.
-        */
-        unlock_variables(NULL, &global_system_variables);
-        unlock_variables(NULL, &max_system_variables);
+        plugin= (struct st_plugin_int *) my_hash_element(hash, j);
+        //DBUG_ASSERT(plugin->ref_count == 0);
+        plugin_deinitialize(plugin, true);
       }
     }
 
-    plugins= (struct st_plugin_int **) my_alloca(sizeof(void*) * (count+1));
-
-    /*
-      If we have any plugins which did not die cleanly, we force shutdown
-    */
-    for (i= 0; i < count; i++)
+    for (uint i=0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
     {
-      plugins[i]= *dynamic_element(&plugin_array, i, struct st_plugin_int **);
-      /* change the state to ensure no reaping races */
-      if (plugins[i]->state == PLUGIN_IS_DELETED)
-        plugins[i]->state= PLUGIN_IS_DYING;
-    }
-    mysql_mutex_unlock(&LOCK_plugin);
-
-    /*
-      We loop through all plugins and call deinit() if they have one.
-    */
-    for (i= 0; i < count; i++)
-      if (!(plugins[i]->state & (PLUGIN_IS_UNINITIALIZED | PLUGIN_IS_FREED |
-                                 PLUGIN_IS_DISABLED)))
+      HASH *hash= global_plugins_state->m_hash +
+                  plugin_type_initialization_order[i];
+      for (uint j= 0; j < hash->records; j++)
       {
-        /*
-          We are forcing deinit on plugins so we don't want to do a ref_count
-          check until we have processed all the plugins.
-        */
-        plugin_deinitialize(plugins[i], false);
+        plugin= (struct st_plugin_int *) my_hash_element(hash, j);
+        plugin_del(plugin);
       }
-
-    /*
-      It's perfectly safe not to lock LOCK_plugin, as there're no
-      concurrent threads anymore. But some functions called from here
-      use mysql_mutex_assert_owner(), so we lock the mutex to satisfy it
-    */
-    mysql_mutex_lock(&LOCK_plugin);
-
-    /*
-      We defer checking ref_counts until after all plugins are deinitialized
-      as some may have worker threads holding on to plugin references.
-    */
-    for (i= 0; i < count; i++)
-    {
-      if (plugins[i]->ref_count)
-        sql_print_error("Plugin '%s' has ref_count=%d after shutdown.",
-                        plugins[i]->name.str, plugins[i]->ref_count);
-      if (plugins[i]->state & PLUGIN_IS_UNINITIALIZED ||
-          plugins[i]->state & PLUGIN_IS_DISABLED)
-        plugin_del(plugins[i]);
     }
+
+    /*
+      release any plugin references held.
+    */
+    unlock_variables(NULL, &global_system_variables);
+    unlock_variables(NULL, &max_system_variables);
 
     /*
       Now we can deallocate all memory.
@@ -2058,19 +1992,22 @@ void plugin_shutdown(void)
 
     cleanup_variables(&global_system_variables);
     cleanup_variables(&max_system_variables);
-    mysql_mutex_unlock(&LOCK_plugin);
 
+    mysql_mutex_unlock(&LOCK_plugin);
     initialized= 0;
     mysql_mutex_destroy(&LOCK_plugin);
-
-    my_afree(plugins);
   }
 
   /* Dispose of the memory */
 
-  for (i= 0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
-    my_hash_free(&plugin_hash[i]);
-  delete_dynamic(&plugin_array);
+  for (int ps=0; ps < 2; ps++)
+  {
+    struct st_plugins_state *state= plugins_states + ps;
+      
+    for (i= 0; i < MYSQL_MAX_PLUGIN_TYPE_NUM; i++)
+      my_hash_free(&state->m_hash[i]);
+    delete_dynamic(&state->m_array);
+  }
 
   count= plugin_dl_array.elements;
   dl= (struct st_plugin_dl **)my_alloca(sizeof(void*) * count);
@@ -2098,7 +2035,8 @@ void plugin_shutdown(void)
 static bool finalize_install(THD *thd, TABLE *table, const LEX_CSTRING *name,
                              int *argc, char **argv)
 {
-  struct st_plugin_int *tmp= plugin_find_internal(name, MYSQL_ANY_PLUGIN);
+  struct st_plugin_int *tmp= plugin_find_internal(new_plugins_state,
+                                                  name, MYSQL_ANY_PLUGIN);
   int error;
   DBUG_ASSERT(tmp);
   mysql_mutex_assert_owner(&LOCK_plugin); // because of tmp->state
@@ -2149,6 +2087,7 @@ static bool finalize_install(THD *thd, TABLE *table, const LEX_CSTRING *name,
   return 0;
 }
 
+
 bool mysql_install_plugin(THD *thd, const LEX_CSTRING *name,
                           const LEX_CSTRING *dl_arg)
 {
@@ -2158,8 +2097,6 @@ bool mysql_install_plugin(THD *thd, const LEX_CSTRING *name,
   enum install_status error;
   int argc=orig_argc;
   char **argv=orig_argv;
-  unsigned long event_class_mask[MYSQL_AUDIT_CLASS_MASK_SIZE] =
-  { MYSQL_AUDIT_GENERAL_CLASSMASK };
   DBUG_ENTER("mysql_install_plugin");
 
   tables.init_one_table(&MYSQL_SCHEMA_NAME, &MYSQL_PLUGIN_NAME, 0, TL_WRITE);
@@ -2178,31 +2115,11 @@ bool mysql_install_plugin(THD *thd, const LEX_CSTRING *name,
     DBUG_RETURN(TRUE);
   }
 
-  /*
-    Pre-acquire audit plugins for events that may potentially occur
-    during [UN]INSTALL PLUGIN.
-
-    When audit event is triggered, audit subsystem acquires interested
-    plugins by walking through plugin list. Evidently plugin list
-    iterator protects plugin list by acquiring LOCK_plugin, see
-    plugin_foreach_with_mask().
-
-    On the other hand [UN]INSTALL PLUGIN is acquiring LOCK_plugin
-    rather for a long time.
-
-    When audit event is triggered during [UN]INSTALL PLUGIN, plugin
-    list iterator acquires the same lock (within the same thread)
-    second time.
-
-    This hack should be removed when LOCK_plugin is fixed so it
-    protects only what it supposed to protect.
-
-    See also mysql_uninstall_plugin() and initialize_audit_plugin()
-  */
-  if (mysql_audit_general_enabled())
-    mysql_audit_acquire_plugins(thd, event_class_mask);
-
   mysql_mutex_lock(&LOCK_plugin);
+
+  if (unlikely(copy_plugins_state(new_plugins_state, global_plugins_state)))
+    goto err;
+
   error= plugin_add(thd->mem_root, thd->lex->create_info.if_not_exists(),
                     name, &dl, MYF(0));
   if (unlikely(error != INSTALL_GOOD))
@@ -2223,11 +2140,12 @@ bool mysql_install_plugin(THD *thd, const LEX_CSTRING *name,
     }
   }
 
-  if (unlikely(error != INSTALL_GOOD))
+  if (error == INSTALL_GOOD)
   {
-    reap_needed= true;
-    reap_plugins();
+    /* swap global_plugins_state <=> new_plugins_state */
   }
+
+  
 err:
   global_plugin_version++;
   mysql_mutex_unlock(&LOCK_plugin);
@@ -2246,7 +2164,8 @@ static bool do_uninstall(THD *thd, TABLE *table, const LEX_CSTRING *name)
   struct st_plugin_int *plugin;
   mysql_mutex_assert_owner(&LOCK_plugin);
 
-  if (!(plugin= plugin_find_internal(name, MYSQL_ANY_PLUGIN)) ||
+  if (!(plugin= plugin_find_internal(new_plugins_state,
+                                     name, MYSQL_ANY_PLUGIN)) ||
       plugin->state & (PLUGIN_IS_UNINITIALIZED | PLUGIN_IS_DYING))
   {
     myf MyFlags= thd->lex->if_exists() ? ME_NOTE : 0;
@@ -2305,8 +2224,6 @@ bool mysql_uninstall_plugin(THD *thd, const LEX_CSTRING *name,
   TABLE_LIST tables;
   LEX_CSTRING dl= *dl_arg;
   bool error= false;
-  unsigned long event_class_mask[MYSQL_AUDIT_CLASS_MASK_SIZE] =
-  { MYSQL_AUDIT_GENERAL_CLASSMASK };
   DBUG_ENTER("mysql_uninstall_plugin");
 
   tables.init_one_table(&MYSQL_SCHEMA_NAME, &MYSQL_PLUGIN_NAME, 0, TL_WRITE);
@@ -2330,31 +2247,10 @@ bool mysql_uninstall_plugin(THD *thd, const LEX_CSTRING *name,
     DBUG_RETURN(TRUE);
   }
 
-  /*
-    Pre-acquire audit plugins for events that may potentially occur
-    during [UN]INSTALL PLUGIN.
-
-    When audit event is triggered, audit subsystem acquires interested
-    plugins by walking through plugin list. Evidently plugin list
-    iterator protects plugin list by acquiring LOCK_plugin, see
-    plugin_foreach_with_mask().
-
-    On the other hand [UN]INSTALL PLUGIN is acquiring LOCK_plugin
-    rather for a long time.
-
-    When audit event is triggered during [UN]INSTALL PLUGIN, plugin
-    list iterator acquires the same lock (within the same thread)
-    second time.
-
-    This hack should be removed when LOCK_plugin is fixed so it
-    protects only what it supposed to protect.
-
-    See also mysql_install_plugin() and initialize_audit_plugin()
-  */
-  if (mysql_audit_general_enabled())
-    mysql_audit_acquire_plugins(thd, event_class_mask);
-
   mysql_mutex_lock(&LOCK_plugin);
+
+  if (unlikely(copy_plugins_state(new_plugins_state, global_plugins_state)))
+    goto err;
 
   if (name->str)
     error= do_uninstall(thd, table, name);
@@ -2378,9 +2274,9 @@ bool mysql_uninstall_plugin(THD *thd, const LEX_CSTRING *name,
       error|= !MyFlags;
     }
   }
-  reap_plugins();
 
   global_plugin_version++;
+err:
   mysql_mutex_unlock(&LOCK_plugin);
   DBUG_RETURN(error);
 #ifdef WITH_WSREP
@@ -2393,54 +2289,43 @@ wsrep_error_label:
 bool plugin_foreach_with_mask(THD *thd, plugin_foreach_func *func,
                        int type, uint state_mask, void *arg)
 {
-  uint idx, total= 0;
+  uint idx;
   struct st_plugin_int *plugin;
-  plugin_ref *plugins;
   my_bool res= FALSE;
+  st_plugins_state *st;
+
   DBUG_ENTER("plugin_foreach_with_mask");
 
   if (!initialized)
     DBUG_RETURN(FALSE);
+  if (thd)
+    st= thd->plugins_state;
+  else
+  {
+    mysql_mutex_assert_owner(&LOCK_plugin);
+    st= global_plugins_state;
+  }
 
-  mysql_mutex_lock(&LOCK_plugin);
-  /*
-    Do the alloca out here in case we do have a working alloca:
-    leaving the nested stack frame invalidates alloca allocation.
-  */
   if (type == MYSQL_ANY_PLUGIN)
   {
-    plugins= (plugin_ref*) my_alloca(plugin_array.elements * sizeof(plugin_ref));
-    for (idx= 0; idx < plugin_array.elements; idx++)
+    for (idx= 0; idx < st->m_array.elements; idx++)
     {
-      plugin= *dynamic_element(&plugin_array, idx, struct st_plugin_int **);
-      if ((plugins[total]= intern_plugin_lock(0, plugin_int_to_ref(plugin),
-                                              state_mask)))
-        total++;
+      plugin= *dynamic_element(&st->m_array, idx, struct st_plugin_int **);
+      if ((res= func(thd, plugin_int_to_ref(plugin), arg)))
+        break;
     }
   }
   else
   {
-    HASH *hash= plugin_hash + type;
-    plugins= (plugin_ref*) my_alloca(hash->records * sizeof(plugin_ref));
+    HASH *hash= st->m_hash + type;
     for (idx= 0; idx < hash->records; idx++)
     {
       plugin= (struct st_plugin_int *) my_hash_element(hash, idx);
-      if ((plugins[total]= intern_plugin_lock(0, plugin_int_to_ref(plugin),
-                                              state_mask)))
-        total++;
+      if ((res= func(thd,  plugin_int_to_ref(plugin), arg)))
+        break;
     }
   }
-  mysql_mutex_unlock(&LOCK_plugin);
 
-  for (idx= 0; idx < total; idx++)
-  {
-    /* It will stop iterating on first engine error when "func" returns TRUE */
-    if ((res= func(thd, plugins[idx], arg)))
-        break;
-  }
-
-  plugin_unlock_list(0, plugins, total);
-  my_afree(plugins);
   DBUG_RETURN(res);
 }
 
@@ -2459,7 +2344,7 @@ static bool plugin_dl_foreach_internal(THD *thd, st_plugin_dl *plugin_dl,
     tmp.plugin_dl= plugin_dl;
 
     mysql_mutex_lock(&LOCK_plugin);
-    if ((plugin= plugin_find_internal(&tmp.name, MYSQL_ANY_PLUGIN)) &&
+    if ((plugin= plugin_find_internal_gl(&tmp.name, MYSQL_ANY_PLUGIN)) &&
         plugin->plugin == plug)
 
     {
@@ -3163,6 +3048,7 @@ void plugin_thdvar_init(THD *thd)
   thd->variables.dynamic_variables_ptr= 0;
 
   mysql_mutex_lock(&LOCK_plugin);
+  thd->plugins_state= global_plugins_state;
   thd->variables.table_plugin=
       intern_plugin_lock(NULL, global_system_variables.table_plugin);
   if (global_system_variables.tmp_table_plugin)
@@ -3261,7 +3147,6 @@ void plugin_thdvar_cleanup(THD *thd)
       intern_plugin_unlock(NULL, *list--);
   }
 
-  reap_plugins();
   mysql_mutex_unlock(&LOCK_plugin);
 
   reset_dynamic(&thd->lex->plugins);
@@ -4209,9 +4094,10 @@ void add_plugin_options(DYNAMIC_ARRAY *options, MEM_ROOT *mem_root)
   if (!initialized)
     return;
 
-  for (uint idx= 0; idx < plugin_array.elements; idx++)
+  for (uint idx= 0; idx < global_plugins_state->m_array.elements; idx++)
   {
-    p= *dynamic_element(&plugin_array, idx, struct st_plugin_int **);
+    p= *dynamic_element(&global_plugins_state->m_array,
+                        idx, struct st_plugin_int **);
 
     if (!(opt= construct_help_options(mem_root, p)))
       continue;

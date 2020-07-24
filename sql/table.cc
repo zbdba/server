@@ -1828,7 +1828,7 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
           replacing it with a globally locked version of tmp_plugin
         */
         /* Check if the partitioning engine is ready */
-        if (!plugin_is_ready(&name, MYSQL_STORAGE_ENGINE_PLUGIN))
+        if (!plugin_is_ready(thd, &name, MYSQL_STORAGE_ENGINE_PLUGIN))
         {
           my_error(ER_OPTION_PREVENTS_STATEMENT, MYF(0),
                    "--skip-partition");
@@ -1902,8 +1902,8 @@ int TABLE_SHARE::init_from_binary_frm_image(THD *thd, bool write,
         parser_name.str= (char*) next_chunk;
         parser_name.length= strlen((char*) next_chunk);
         next_chunk+= parser_name.length + 1;
-        keyinfo->parser= my_plugin_lock_by_name(NULL, &parser_name,
-                                                MYSQL_FTPARSER_PLUGIN);
+        keyinfo->parser= my_plugin_lock_by_name(thd->plugins_state, NULL,
+                           &parser_name, MYSQL_FTPARSER_PLUGIN);
         if (! keyinfo->parser)
         {
           my_error(ER_PLUGIN_IS_NOT_LOADED, MYF(0), parser_name.str);

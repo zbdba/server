@@ -180,6 +180,8 @@ plugin_ref ha_resolve_by_name(THD *thd, const LEX_CSTRING *name,
 {
   const LEX_CSTRING *table_alias;
   plugin_ref plugin;
+  st_plugins_state *st= thd ? thd->plugins_state : global_plugins_state;
+  LEX *lex= thd ? thd->lex : 0;
 
 redo:
   /* my_strnncoll is a macro and gcc doesn't do early expansion of macro */
@@ -188,7 +190,8 @@ redo:
                            (const uchar *)STRING_WITH_LEN("DEFAULT"), 0))
     return tmp_table ?  ha_default_tmp_plugin(thd) : ha_default_plugin(thd);
 
-  if ((plugin= my_plugin_lock_by_name(thd, name, MYSQL_STORAGE_ENGINE_PLUGIN)))
+  if ((plugin= my_plugin_lock_by_name(st, lex,
+                                      name, MYSQL_STORAGE_ENGINE_PLUGIN)))
   {
     handlerton *hton= plugin_hton(plugin);
     if (hton && !(hton->flags & HTON_NOT_USER_SELECTABLE))
@@ -2233,8 +2236,10 @@ int ha_recover(HASH *commit_list)
     DBUG_RETURN(1);
   }
 
+  mysql_mutex_lock(&LOCK_plugin);
   plugin_foreach(NULL, xarecover_handlerton, 
                  MYSQL_STORAGE_ENGINE_PLUGIN, &info);
+  mysql_mutex_unlock(&LOCK_plugin);
 
   my_free(info.list);
   if (info.found_foreign_xids)
@@ -5565,8 +5570,8 @@ bool ha_table_exists(THD *thd, const LEX_CSTRING *db, const LEX_CSTRING *table_n
       
       if (type != TABLE_TYPE_VIEW)
       {
-        plugin_ref p=  plugin_lock_by_name(thd, &engine,
-                                           MYSQL_STORAGE_ENGINE_PLUGIN);
+        plugin_ref p=  plugin_lock_by_name(thd->plugins_state, thd->lex,
+                         &engine, MYSQL_STORAGE_ENGINE_PLUGIN);
         *hton= p ? plugin_hton(p) : NULL;
         if (*hton)
           // verify that the table really exists

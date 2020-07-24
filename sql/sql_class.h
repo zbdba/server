@@ -3245,6 +3245,7 @@ public:
   unsigned long audit_class_mask[MYSQL_AUDIT_CLASS_MASK_SIZE];
   int audit_plugin_version;
 #endif
+  st_plugins_state *plugins_state;
 
 #if defined(ENABLED_DEBUG_SYNC)
   /* Debug Sync facility. See debug_sync.cc. */

@@ -5344,7 +5344,8 @@ have_partitioning:
           {
 #ifdef WITH_PARTITION_STORAGE_ENGINE
             LEX_CSTRING partition_name={STRING_WITH_LEN("partition")};
-            if (unlikely(!plugin_is_ready(&partition_name, MYSQL_STORAGE_ENGINE_PLUGIN)))
+            if (unlikely(!plugin_is_ready(thd, &partition_name,
+                                          MYSQL_STORAGE_ENGINE_PLUGIN)))
               my_yyabort_error((ER_OPTION_PREVENTS_STATEMENT, MYF(0),
                                 "--skip-partition"));
 #else
@@ -7711,7 +7712,7 @@ fulltext_key_opt:
           all_key_opt
         | WITH PARSER_SYM IDENT_sys
           {
-            if (likely(plugin_is_ready(&$3, MYSQL_FTPARSER_PLUGIN)))
+            if (likely(plugin_is_ready(thd, &$3, MYSQL_FTPARSER_PLUGIN)))
               Lex->last_key->key_create_info.parser_name= $3;
             else
               my_yyabort_error((ER_FUNCTION_NOT_DEFINED, MYF(0), $3.str));
