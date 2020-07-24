@@ -1215,7 +1215,6 @@ bool Protocol_text::store_str(const char *from, size_t length,
   DBUG_PRINT("info", ("Protocol_text::store field %u : %.*b", field_pos,
                       (int) length, (length == 0 ? "" : from)));
   DBUG_ASSERT(field_handlers == 0 || field_pos < field_count);
-  DBUG_ASSERT(valid_handler(field_pos, PROTOCOL_SEND_STRING));
   field_pos++;
 #endif
   return store_string_aux(from, length, fromcs, tocs);
@@ -1312,12 +1311,6 @@ bool Protocol_text::store(Field *field)
 {
   if (field->is_null())
     return store_null();
-#ifndef DBUG_OFF
-  field_pos++;
-#endif
-  char buff[MAX_FIELD_WIDTH];
-  String str(buff,sizeof(buff), &my_charset_bin);
-  CHARSET_INFO *tocs= this->thd->variables.character_set_results;
 #ifdef DBUG_ASSERT_EXISTS
   TABLE *table= field->table;
   my_bitmap_map *old_map= 0;
@@ -1325,13 +1318,14 @@ bool Protocol_text::store(Field *field)
     old_map= dbug_tmp_use_all_columns(table, table->read_set);
 #endif
 
-  field->val_str(&str);
+  bool rc= field->send_text(this);
+
 #ifdef DBUG_ASSERT_EXISTS
   if (old_map)
     dbug_tmp_restore_column_map(table->read_set, old_map);
 #endif
 
-  return store_string_aux(str.ptr(), str.length(), str.charset(), tocs);
+  return rc;
 }
 
 

@@ -1897,6 +1897,15 @@ bool Field::send_binary(Protocol *protocol)
 }
 
 
+bool Field::send_text(Protocol_text *protocol)
+{
+  DBUG_ASSERT(marked_for_read());
+  StringBuffer<MAX_FIELD_WIDTH> tmp(charset());
+  val_str(&tmp);
+  return protocol->Protocol::store(tmp.ptr(), tmp.length(), tmp.charset());
+}
+
+
 /**
    Check to see if field size is compatible with destination.
 
@@ -3857,8 +3866,17 @@ String *Field_tiny::val_str(String *val_buffer,
 
 bool Field_tiny::send_binary(Protocol *protocol)
 {
+  DBUG_ASSERT(marked_for_read());
   return protocol->store_tiny((longlong) (int8) ptr[0]);
 }
+
+bool Field_tiny::send_text(Protocol_text *protocol)
+{
+  DBUG_ASSERT(marked_for_read());
+  return zerofill ? Field::send_text(protocol) :
+                    protocol->store_tiny(val_int());
+}
+
 
 int Field_tiny::cmp(const uchar *a_ptr, const uchar *b_ptr) const
 {
@@ -4017,7 +4035,16 @@ String *Field_short::val_str(String *val_buffer,
 
 bool Field_short::send_binary(Protocol *protocol)
 {
+  DBUG_ASSERT(marked_for_read());
   return protocol->store_short(Field_short::val_int());
+}
+
+
+bool Field_short::send_text(Protocol_text *protocol)
+{
+  DBUG_ASSERT(marked_for_read());
+  return zerofill ? Field::send_text(protocol) :
+                    protocol->store_short(val_int());
 }
 
 
@@ -4205,6 +4232,14 @@ bool Field_medium::send_binary(Protocol *protocol)
 }
 
 
+bool Field_medium::send_text(Protocol_text *protocol)
+{
+  DBUG_ASSERT(marked_for_read());
+  return zerofill ? Field::send_text(protocol) :
+                    protocol->store_long(val_int());
+}
+
+
 int Field_medium::cmp(const uchar *a_ptr, const uchar *b_ptr) const
 {
   long a,b;
@@ -4375,6 +4410,14 @@ bool Field_long::send_binary(Protocol *protocol)
   return protocol->store_long(Field_long::val_int());
 }
 
+bool Field_long::send_text(Protocol_text *protocol)
+{
+  DBUG_ASSERT(marked_for_read());
+  return zerofill ? Field::send_text(protocol) :
+                    protocol->store_long(val_int());
+}
+
+
 int Field_long::cmp(const uchar *a_ptr, const uchar *b_ptr) const
 {
   int32 a,b;
@@ -4510,6 +4553,14 @@ bool Field_longlong::send_binary(Protocol *protocol)
 {
   DBUG_ASSERT(marked_for_read());
   return protocol->store_longlong(Field_longlong::val_int(), unsigned_flag);
+}
+
+
+bool Field_longlong::send_text(Protocol_text *protocol)
+{
+  DBUG_ASSERT(marked_for_read());
+  return zerofill ? Field::send_text(protocol) :
+                    protocol->store_longlong(val_int(), is_unsigned());
 }
 
 
@@ -4690,6 +4741,14 @@ bool Field_float::send_binary(Protocol *protocol)
 {
   DBUG_ASSERT(marked_for_read());
   return protocol->store_float((float) Field_float::val_real(), dec);
+}
+
+
+bool Field_float::send_text(Protocol_text *protocol)
+{
+  DBUG_ASSERT(marked_for_read());
+  return zerofill ? Field::send_text(protocol) :
+                    protocol->store_float((float) Field_float::val_real(), dec);
 }
 
 
@@ -4981,7 +5040,16 @@ String *Field_double::val_str(String *val_buffer,
 
 bool Field_double::send_binary(Protocol *protocol)
 {
+  DBUG_ASSERT(marked_for_read());
   return protocol->store_double(Field_double::val_real(), dec);
+}
+
+
+bool Field_double::send_text(Protocol_text *protocol)
+{
+  DBUG_ASSERT(marked_for_read());
+  return zerofill ? Field::send_text(protocol) :
+                    protocol->store_double(Field_double::val_real(), dec);
 }
 
 

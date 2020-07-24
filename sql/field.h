@@ -37,6 +37,7 @@
 class Send_field;
 class Copy_field;
 class Protocol;
+class Protocol_text;
 class Create_field;
 class Relay_log_info;
 class Field;
@@ -1572,6 +1573,7 @@ public:
     return str;
   }
   virtual bool send_binary(Protocol *protocol);
+  virtual bool send_text(Protocol_text *protocol);
 
   virtual uchar *pack(uchar *to, const uchar *from, uint max_length);
   /**
@@ -2516,6 +2518,7 @@ public:
   longlong val_int() override;
   String *val_str(String *, String *) override;
   bool send_binary(Protocol *protocol) override;
+  bool send_text(Protocol_text *protocol) override;
   int cmp(const uchar *,const uchar *) const override;
   void sort_string(uchar *buff,uint length) override;
   uint32 pack_length() const override { return 1; }
@@ -2579,6 +2582,7 @@ public:
   longlong val_int() override;
   String *val_str(String *, String *) override;
   bool send_binary(Protocol *protocol) override;
+  bool send_text(Protocol_text *protocol) override;
   int cmp(const uchar *,const uchar *) const override;
   void sort_string(uchar *buff,uint length) override;
   uint32 pack_length() const override { return 2; }
@@ -2626,6 +2630,7 @@ public:
   longlong val_int() override;
   String *val_str(String *, String *) override;
   bool send_binary(Protocol *protocol) override;
+  bool send_text(Protocol_text *protocol) override;
   int cmp(const uchar *,const uchar *) const override;
   void sort_string(uchar *buff,uint length) override;
   uint32 pack_length() const override { return 3; }
@@ -2677,6 +2682,7 @@ public:
   double val_real() override;
   longlong val_int() override;
   bool send_binary(Protocol *protocol) override;
+  bool send_text(Protocol_text *protocol) override;
   String *val_str(String *, String *) override;
   int cmp(const uchar *,const uchar *) const override;
   void sort_string(uchar *buff,uint length) override;
@@ -2739,6 +2745,7 @@ public:
   longlong val_int() override;
   String *val_str(String *, String *) override;
   bool send_binary(Protocol *protocol) override;
+  bool send_text(Protocol_text *protocol) override;
   int cmp(const uchar *,const uchar *) const override;
   void sort_string(uchar *buff,uint length) override;
   uint32 pack_length() const override { return 8; }
@@ -2839,6 +2846,7 @@ public:
   longlong val_int() override;
   String *val_str(String *, String *) override;
   bool send_binary(Protocol *protocol) override;
+  bool send_text(Protocol_text *protocol) override;
   int cmp(const uchar *,const uchar *) const override;
   void sort_string(uchar *buff, uint length) override;
   uint32 pack_length() const override { return sizeof(float); }
@@ -2903,6 +2911,7 @@ public:
   ulonglong val_uint() override { return (ulonglong) val_int_from_real(true); }
   String *val_str(String *, String *) override;
   bool send_binary(Protocol *protocol) override;
+  bool send_text(Protocol_text *protocol) override;
   int cmp(const uchar *,const uchar *) const override;
   void sort_string(uchar *buff, uint length) override;
   uint32 pack_length() const override { return sizeof(double); }
