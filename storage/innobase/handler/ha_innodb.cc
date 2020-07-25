@@ -5878,7 +5878,7 @@ ha_innobase::open(const char* name, int, uint)
 	}
 
 	mutex_enter(&dict_sys.mutex);
-	dberr_t err = dict_load_foreigns(ha_thd(), ib_table, table->s, NULL, false, DICT_ERR_IGNORE_FK_NOKEY);
+	dberr_t err = dict_load_foreigns(ib_table, table->s, NULL, false, DICT_ERR_IGNORE_FK_NOKEY);
 	mutex_exit(&dict_sys.mutex);
 	if (err != DB_SUCCESS) {
 		DBUG_RETURN(convert_error_code_to_mysql(
@@ -12698,7 +12698,7 @@ int create_table_info_t::create_table(bool create_fk)
 		bool check_foreigns = !thd_test_options(m_thd, OPTION_NO_FOREIGN_KEY_CHECKS);
 		/* Check that also referencing constraints are ok */
 		// FIXME: is it needed here? I guess not.
-		err = dict_load_foreigns(m_thd, m_table, m_form->s, NULL, true,
+		err = dict_load_foreigns(m_table, m_form->s, NULL, true,
 					 check_foreigns
 						? DICT_ERR_IGNORE_NONE
 						: DICT_ERR_IGNORE_FK_NOKEY);
@@ -21592,7 +21592,6 @@ ib_push_frm_error(
 
 dberr_t
 dict_load_foreigns(
-	THD*			thd,
 	dict_table_t*		table,
 	TABLE_SHARE*		share,
 	const char**		col_names,	/*!< in: column names, or NULL
@@ -21610,7 +21609,6 @@ dict_load_foreigns(
 	const char*	      column_names[MAX_NUM_FK_COLUMNS];
 	const char*	      ref_column_names[MAX_NUM_FK_COLUMNS];
 	ut_ad(table);
-	ut_ad(thd);
 	if (table->is_system_db)
 		return DB_SUCCESS;
 	if (!share) {
@@ -21618,6 +21616,9 @@ dict_load_foreigns(
 		LEX_CSTRING table_name;
 		char	db_buf[NAME_LEN + 1];
 		char	tbl_buf[NAME_LEN + 1];
+
+		if (!current_thd)
+			return DB_CANNOT_ADD_CONSTRAINT;
 
 		if (!table->parse_name<true>(db_buf, tbl_buf, &db.length, &table_name.length)) {
 			return DB_CANNOT_ADD_CONSTRAINT;
@@ -21627,7 +21628,7 @@ dict_load_foreigns(
 		table_name.str= tbl_buf;
 
 		tl.init_one_table(&db, &table_name, &table_name, TL_IGNORE);
-		sa.acquire(thd, tl);
+		sa.acquire(current_thd, tl);
 		if (!sa.share) {
 			return DB_CANNOT_ADD_CONSTRAINT;
 		}
@@ -21756,7 +21757,7 @@ dict_load_foreigns(
 				// not possible for DML (foreign table is written)
 				continue;
 			}
-			err = dict_load_foreigns(thd, for_table, NULL, NULL, check_charsets, ignore_err);
+			err = dict_load_foreigns(for_table, NULL, NULL, check_charsets, ignore_err);
 			if (err != DB_SUCCESS) {
 				return err;
 			}

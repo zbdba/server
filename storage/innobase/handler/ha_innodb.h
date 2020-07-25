@@ -987,7 +987,6 @@ innobase_set_foreign_key_option(
 dberr_t
 dict_load_foreigns(
 /*===============*/
-	THD*			thd,
 	dict_table_t*		table,
 	TABLE_SHARE*		share,
 	const char**		col_names,	/*!< in: column names, or NULL
