@@ -10924,8 +10924,8 @@ do_continue:;
 
       if (res)
       {
-        if (table->s)
-          table->s->frm_image= NULL;
+//         if (table->s)
+//           table->s->frm_image= NULL;
         cleanup_table_after_inplace_alter(&altered_table);
         DBUG_RETURN(true);
       }
