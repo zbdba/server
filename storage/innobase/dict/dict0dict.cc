@@ -2993,6 +2993,7 @@ dict_foreign_add_to_cache(
 	dict_foreign_t*	for_in_cache		= NULL;
 	dict_index_t*	index;
 	ibool		added_to_referenced_list= FALSE;
+	ibool		added_to_foreign_list= FALSE;
 	FILE*		ef			= dict_foreign_err_file;
 
 	DBUG_ENTER("dict_foreign_add_to_cache");
@@ -3112,17 +3113,22 @@ dict_foreign_add_to_cache(
 
 		ut_a(ret.second);	/* second is true if the insertion
 					took place */
+		added_to_foreign_list = true;
 	}
 
 	/* We need to move the table to the non-LRU end of the table LRU
 	list. Otherwise it will be evicted from the cache. */
 
-	if (ref_table != NULL) {
+	if (ref_table != NULL && added_to_referenced_list) {
 		dict_sys.prevent_eviction(ref_table);
 	}
 
-	if (for_table != NULL) {
+	if (for_table != NULL && added_to_foreign_list) {
 		dict_sys.prevent_eviction(for_table);
+	}
+
+	if (!for_in_cache->v_cols && (added_to_foreign_list || added_to_referenced_list)) {
+		dict_mem_foreign_fill_vcol_set(for_in_cache);
 	}
 
 	ut_ad(dict_lru_validate());

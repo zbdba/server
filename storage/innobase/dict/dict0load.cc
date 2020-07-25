@@ -2855,23 +2855,7 @@ corrupted:
 	all indexes were loaded. */
 	if (!table->is_readable()) {
 		/* Don't attempt to load the indexes from disk. */
-	} else if (err == DB_SUCCESS) {
-		err = dict_load_foreigns(table, NULL, NULL, true,
-					 ignore_err);
-
-		if (err != DB_SUCCESS) {
-			ib::warn() << "Load table " << table->name
-				<< " failed, the table has missing"
-				" foreign key indexes. Turn off"
-				" 'foreign_key_checks' and try again.";
-
-			dict_sys.remove(table);
-			table = NULL;
-		} else {
-			dict_mem_table_fill_foreign_vcol_set(table);
-			table->fk_max_recusive_level = 0;
-		}
-	} else {
+	} else if (err != DB_SUCCESS) {
 		dict_index_t*   index;
 
 		/* Make sure that at least the clustered index was loaded.

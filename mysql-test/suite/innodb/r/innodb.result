@@ -2534,7 +2534,7 @@ create table t1(a char(10) primary key, b varchar(20)) engine = innodb;
 set foreign_key_checks=1;
 insert into t1 values (1, 1);
 insert into t2 values (1, 1);
-ERROR HY000: Cannot add foreign key constraint for `t1`
+ERROR 23000: Cannot add or update a child row: a foreign key constraint fails (`test`.`t2`, CONSTRAINT `fk_t2` FOREIGN KEY (`b`) REFERENCES `t1` (`a`))
 drop tables t2, t1;
 set foreign_key_checks=0;
 create table t1(a varchar(10) primary key) engine = innodb DEFAULT CHARSET=latin1;

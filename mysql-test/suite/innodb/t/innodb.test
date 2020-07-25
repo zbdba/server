@@ -1605,7 +1605,7 @@ create table t2 (a int primary key, b int, foreign key (b) references t1(a)) eng
 create table t1(a char(10) primary key, b varchar(20)) engine = innodb;
 set foreign_key_checks=1;
 insert into t1 values (1, 1);
---error ER_CANNOT_ADD_FOREIGN
+--error ER_NO_REFERENCED_ROW_2
 insert into t2 values (1, 1);
 drop tables t2, t1;
 

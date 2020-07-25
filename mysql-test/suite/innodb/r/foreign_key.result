@@ -241,8 +241,6 @@ ALTER TABLE t1 ADD FULLTEXT INDEX ft1 (f);
 Warnings:
 Warning	1088	failed to load FOREIGN KEY constraints
 ALTER TABLE t1 ADD FULLTEXT INDEX ft2 (f);
-Warnings:
-Warning	1088	failed to load FOREIGN KEY constraints
 DROP TABLE t1;
 CREATE TABLE t1 (f VARCHAR(256), FTS_DOC_ID BIGINT UNSIGNED PRIMARY KEY)
 ENGINE=InnoDB;

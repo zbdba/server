@@ -5877,14 +5877,12 @@ ha_innobase::open(const char* name, int, uint)
 		}
 	}
 
-	if (table->s->referenced_keys.elements > ib_table->referenced_set.size()) {
-		mutex_enter(&dict_sys.mutex);
-		dberr_t err = dict_load_foreigns(ib_table, table->s, NULL, false, DICT_ERR_IGNORE_NONE);
-		mutex_exit(&dict_sys.mutex);
-		if (err != DB_SUCCESS) {
-			DBUG_RETURN(convert_error_code_to_mysql(
-						err, ib_table->flags, NULL));
-		}
+	mutex_enter(&dict_sys.mutex);
+	dberr_t err = dict_load_foreigns(ib_table, table->s, NULL, false, DICT_ERR_IGNORE_FK_NOKEY);
+	mutex_exit(&dict_sys.mutex);
+	if (err != DB_SUCCESS) {
+		DBUG_RETURN(convert_error_code_to_mysql(
+					err, ib_table->flags, NULL));
 	}
 
 	m_prebuilt = row_create_prebuilt(ib_table, table->s->reclength);
@@ -21611,17 +21609,19 @@ dict_load_foreigns(
 	const char*	      column_names[MAX_NUM_FK_COLUMNS];
 	const char*	      ref_column_names[MAX_NUM_FK_COLUMNS];
 	ut_ad(table);
-	if (!share) { // NB: dict_load_table_one() codepath
+	if (table->is_system_db)
+		return DB_SUCCESS;
+	if (!share) {
 		LEX_CSTRING db;
 		LEX_CSTRING table_name;
 		char	db_buf[NAME_LEN + 1];
 		char	tbl_buf[NAME_LEN + 1];
 
-		if (table->is_system_db)
-			return DB_SUCCESS;
+		if (!current_thd)
+			return DB_CANNOT_ADD_CONSTRAINT;
 
 		if (!table->parse_name<true>(db_buf, tbl_buf, &db.length, &table_name.length)) {
-			return DB_ERROR;
+			return DB_CANNOT_ADD_CONSTRAINT;
 		}
 
 		db.str= db_buf;
@@ -21630,7 +21630,7 @@ dict_load_foreigns(
 		tl.init_one_table(&db, &table_name, &table_name, TL_IGNORE);
 		sa.acquire(current_thd, tl);
 		if (!sa.share) {
-			return DB_ERROR;
+			return DB_CANNOT_ADD_CONSTRAINT;
 		}
 		share= sa.share;
 	}
@@ -21639,7 +21639,7 @@ dict_load_foreigns(
 	{
 		foreign = dict_mem_foreign_create();
 		if (!innobase_set_foreign_key_option(foreign, &fk)) {
-			return DB_ERROR;
+			return DB_CANNOT_ADD_CONSTRAINT;
 		}
 
 		// NB: see innobase_get_foreign_key_info() for index checks
@@ -21674,7 +21674,7 @@ dict_load_foreigns(
 			return DB_OUT_OF_MEMORY;
 		len= build_normalized_name(buf, sizeof(buf), LEX_STRING_WITH_LEN(fk.referenced_db), LEX_STRING_WITH_LEN(fk.referenced_table), 0, false);
 		if (!len) {
-			return DB_ERROR;
+			return DB_CANNOT_ADD_CONSTRAINT;
 		}
 		foreign->referenced_table_name = mem_heap_strdupl(foreign->heap, buf, len);
 		if (!foreign->referenced_table_name)
@@ -21737,7 +21737,7 @@ dict_load_foreigns(
 			LEX_CSTRING table_name = { tbl_buf, 0 };
 
 			if (!rk->foreign_table->parse_name<true>(db_buf, tbl_buf, &db.length, &table_name.length)) {
-				return DB_ERROR;
+				return DB_CANNOT_ADD_CONSTRAINT;
 			}
 
 			auto it = tables_missing.find({db, table_name});
