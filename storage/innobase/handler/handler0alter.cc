@@ -9424,7 +9424,7 @@ innobase_update_foreign_cache(
 	and prevent the table from being evicted from the data
 	dictionary cache (work around the lack of WL#6049). */
 
-	err = dict_load_foreigns(user_table, altered_table->s,
+	err = dict_load_foreigns(user_thd, user_table, altered_table->s,
 				 ctx->col_names, true,
 				 DICT_ERR_IGNORE_NONE);
 
@@ -9433,7 +9433,7 @@ innobase_update_foreign_cache(
 		/* It is possible there are existing foreign key are
 		loaded with "foreign_key checks" off,
 		so let's retry the loading with charset_check is off */
-		err = dict_load_foreigns(user_table, altered_table->s,
+		err = dict_load_foreigns(user_thd, user_table, altered_table->s,
 					 ctx->col_names, false,
 					 DICT_ERR_IGNORE_NONE);
 
