@@ -1156,13 +1156,17 @@ Sql_condition* THD::raise_condition(uint sql_errno,
   if (sqlstate == NULL)
    sqlstate= mysql_errno_to_sqlstate(sql_errno);
 
-  if ((level == Sql_condition::WARN_LEVEL_WARN) &&
-      really_abort_on_warning())
+  /*
+    Warning is converted to error when strict mode is enabled and
+    query tries to modify the table but fails because of bad data.
+    In such case, the killed state doesn't changed until the below
+    given if statement is true.
+    But if the query was already aborted then the killed status has
+    already changed. So we need to first check the killed state.
+  */
+  if ((killed == NOT_KILLED) && (level == Sql_condition::WARN_LEVEL_WARN) &&
+       really_abort_on_warning())
   {
-    /*
-      FIXME:
-      push_warning and strict SQL_MODE case.
-    */
     level= Sql_condition::WARN_LEVEL_ERROR;
     set_killed(KILL_BAD_DATA);
   }
